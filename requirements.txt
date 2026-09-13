@@ -1,0 +1,18 @@
+# Runtime and test dependencies.
+#
+# torch installs the CUDA build from PyPI on Linux, which is what you want on a
+# GPU box. For a CPU-only machine or CI, install it from the CPU index first:
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+# then run this file; pip will leave the existing torch alone.
+#
+# mamba_ssm is deliberately absent: it compiles CUDA kernels against the
+# installed torch and cannot be resolved here. See backbones/swin_umamba.py.
+
+torch>=2.0
+monai>=1.3
+einops>=0.7
+opencv-python-headless>=4.8
+numpy>=1.24
+pandas>=2.0
+tqdm>=4.65
+h5py>=3.8
