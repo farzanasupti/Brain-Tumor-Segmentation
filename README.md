@@ -70,7 +70,8 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `conditioning.py` | FiLM modulation and the tumour-type head |
 | `backbones/` | model registry — `unet`, `cond_unet`, `swin_unetr`, `swin_umamba` |
 | `dataloading.py` | dataset and loaders |
-| `losses.py` | Dice+BCE, joint segmentation + type loss, scoring |
+| `losses.py` | Dice+BCE, joint segmentation + type loss, Dice/IoU scoring |
+| `segmetrics.py` | HD95 and average symmetric surface distance |
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
 | `run_tests.py` | one entry point for the test suites, used by CI |
@@ -100,6 +101,15 @@ only in intensity — which is what within-fold contrasts assume.
 rather than 60/20/20. A model trained on 60% cannot be compared against a published
 number obtained with 80%.
 
+**Boundary distance is undefined when a mask is empty**, and by default HD95 returns
+NaN for those slices. `segmetrics.summarise()` reports how many were undefined next to
+the mean, because dropping missed slices silently inflates the score. Pass
+`empty_value="diagonal"` for the penalise-instead-of-skip convention, and say which you
+used.
+
+**Predicted masks are kept** under each cell's `predictions/`. A metric thought of after
+45 cells have run can then be computed without retraining any of them.
+
 ## Tests
 
 ```bash
@@ -108,7 +118,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-113 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+132 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 

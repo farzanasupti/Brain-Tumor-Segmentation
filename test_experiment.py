@@ -210,8 +210,32 @@ def a_cell_leaves_the_artefacts_the_analysis_needs():
     with open(os.path.join(cell_dir, "test_slices.csv"), newline="") as fh:
         rows = list(csv.DictReader(fh))
     assert rows, "no per-slice rows"
-    assert {"pid", "type", "dice", "iou"} <= set(rows[0]), rows[0]
+    assert {"pid", "type", "dice", "iou", "hd95", "assd",
+            "pred_pixels", "true_pixels"} <= set(rows[0]), rows[0]
     assert all(r["pid"] for r in rows), "per-slice rows lost the patient id"
+
+
+@test
+def predicted_masks_are_kept_so_new_metrics_need_no_retraining():
+    """Adding a metric after 45 cells have run must not mean running them again."""
+    root = os.path.join(TMP, "r7")
+    records, assignment = build_corpus(root)
+    out = os.path.join(root, "runs")
+    cells = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])
+    run_grid(cells, records, assignment, out, **tiny_kwargs())
+
+    pred_dir = os.path.join(out, cells[0]["cell"], "predictions")
+    assert os.path.isdir(pred_dir), "predictions were not saved"
+    saved = [f for f in os.listdir(pred_dir) if f.endswith(".png")]
+
+    with open(os.path.join(out, cells[0]["cell"], "test_slices.csv"), newline="") as fh:
+        scored = list(csv.DictReader(fh))
+    assert len(saved) == len(scored), f"{len(saved)} masks for {len(scored)} rows"
+
+    import cv2
+    import numpy as np
+    mask = cv2.imread(os.path.join(pred_dir, saved[0]), cv2.IMREAD_GRAYSCALE)
+    assert set(np.unique(mask)) <= {0, 255}, "saved prediction is not binary"
 
 
 @test

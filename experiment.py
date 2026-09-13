@@ -11,8 +11,9 @@ cell in flight and nothing else -- rerun the same command and it picks up.
         --backbones unet cond_unet --arms standard region --limit 4
 
 Per-cell artefacts land under runs/<run-name>/<cell>/: best.pt, last.pt, the
-per-epoch log, and per-slice test scores carrying pid and tumor type so results
-can be aggregated per patient and per type without retraining anything.
+per-epoch log, per-slice test scores carrying pid and tumor type, and the
+predicted masks themselves -- so any metric thought of after the fact can be
+computed without retraining a single cell.
 
 --dry-run is the pre-flight check: it enumerates the grid, reports which
 backbones this environment can actually build, and estimates nothing it has not
@@ -27,13 +28,15 @@ import time
 
 import backbones
 import folds as fold_lib
+import segmetrics
 import splits as split_lib
 from dataloading import make_loader
 from engine import evaluate, fit, load_checkpoint, pick_device
 
 RESULT_FIELDS = (
     "cell", "backbone", "family", "condition", "arm", "fold", "seed",
-    "params", "best_valid_dice", "test_dice", "test_iou", "test_type_acc",
+    "params", "best_valid_dice", "test_dice", "test_iou", "test_hd95",
+    "test_hd95_undefined", "test_assd", "test_type_acc",
     "epochs_run", "stopped_early", "seconds", "finished_at",
 )
 
@@ -96,7 +99,7 @@ def write_per_slice(path, rows):
 def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=16,
              epochs=150, lr=1e-4, patience=20, type_weight=0.2, seed=42,
              num_workers=2, valid_mode="carve", device=None, max_batches=None,
-             model_kwargs=None, verbose=True):
+             model_kwargs=None, save_predictions=True, verbose=True):
     """Train and test one cell. Returns the results row.
 
     `model_kwargs` is forwarded to the backbone builder, for the protocol's
@@ -137,9 +140,17 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
     # Test the *best* checkpoint, not whatever the last epoch left behind.
     if os.path.exists(best_path):
         load_checkpoint(best_path, model, device=device)
-    metrics, per_slice = evaluate(model, test_loader, None, device,
-                                  max_batches=max_batches, per_item=True)
+    metrics, per_slice = evaluate(
+        model, test_loader, None, device, max_batches=max_batches,
+        per_item=True, boundary=True,
+        save_predictions_to=(os.path.join(cell_dir, "predictions")
+                             if save_predictions else None))
     write_per_slice(os.path.join(cell_dir, "test_slices.csv"), per_slice)
+
+    boundary = segmetrics.summarise([r.get("hd95", float("nan")) for r in per_slice],
+                                    "hd95")
+    surface = segmetrics.summarise([r.get("assd", float("nan")) for r in per_slice],
+                                   "assd")
 
     return {
         **cell,
@@ -148,6 +159,9 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         "best_valid_dice": round(outcome["best_dice"], 6),
         "test_dice": round(metrics["dice"], 6),
         "test_iou": round(metrics["iou"], 6),
+        "test_hd95": round(boundary["hd95"], 4),
+        "test_hd95_undefined": boundary["hd95_undefined"],
+        "test_assd": round(surface["assd"], 4),
         "test_type_acc": (round(metrics["type_acc"], 6)
                           if metrics["type_acc"] is not None else None),
         "epochs_run": outcome["epochs_run"],
@@ -180,7 +194,8 @@ def run_grid(cells, records, assignment, out_dir, *, results_path=None,
         produced.append(row)
         if verbose:
             print(f"  test Dice {row['test_dice']:.4f}  "
-                  f"IoU {row['test_iou']:.4f}  ({row['seconds']:.0f}s)")
+                  f"IoU {row['test_iou']:.4f}  HD95 {row['test_hd95']:.2f}px  "
+                  f"({row['seconds']:.0f}s)")
     return produced
 
 

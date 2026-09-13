@@ -15,6 +15,7 @@ import time
 
 import torch
 
+import segmetrics
 from backbones import split_output
 from losses import JointLoss, binary_scores, type_accuracy
 
@@ -63,13 +64,20 @@ def train_epoch(model, loader, criterion, optimizer, device, max_batches=None):
 
 @torch.no_grad()
 def evaluate(model, loader, criterion=None, device=None, max_batches=None,
-             per_item=False):
+             per_item=False, boundary=False, save_predictions_to=None):
     """Validation / test pass. Returns mean Dice, IoU, loss and type accuracy.
 
     With per_item=True also returns one row per slice, carrying pid and type so
     results can be aggregated per patient and per tumor type later.
+
+    `boundary=True` adds HD95 and ASSD per slice. They cost a pair of distance
+    transforms each, so they are off during per-epoch validation and on at test
+    time. `save_predictions_to` writes each predicted mask as a PNG, which makes
+    any metric thought of later computable without retraining a single cell.
     """
     device = device or pick_device()
+    if save_predictions_to:
+        os.makedirs(save_predictions_to, exist_ok=True)
     model.eval()
 
     dice_sum = iou_sum = loss_sum = 0.0
@@ -98,18 +106,36 @@ def evaluate(model, loader, criterion=None, device=None, max_batches=None,
             type_correct += (type_logits.argmax(1) == types).sum().item()
             type_seen += n
 
-        if per_item:
+        if per_item or save_predictions_to:
+            pred_masks = (torch.sigmoid(seg_logits) > 0.5).float().cpu().numpy()
+            true_masks = (masks > 0.5).float().cpu().numpy()
             predicted = (type_logits.argmax(1).tolist() if type_logits is not None
                          else [None] * n)
+
             for j in range(n):
-                rows.append({
+                if save_predictions_to:
+                    import cv2
+                    cv2.imwrite(
+                        os.path.join(save_predictions_to,
+                                     f"{batch['slice_id'][j]}.png"),
+                        (pred_masks[j].squeeze() * 255).astype("uint8"))
+                if not per_item:
+                    continue
+
+                row = {
                     "slice_id": batch["slice_id"][j],
                     "pid": batch["pid"][j],
                     "type": int(types[j].item()),
                     "predicted_type": predicted[j],
                     "dice": float(dice[j].item()),
                     "iou": float(iou[j].item()),
-                })
+                    "pred_pixels": int(pred_masks[j].sum()),
+                    "true_pixels": int(true_masks[j].sum()),
+                }
+                if boundary:
+                    row["hd95"] = segmetrics.hd95(pred_masks[j], true_masks[j])
+                    row["assd"] = segmetrics.assd(pred_masks[j], true_masks[j])
+                rows.append(row)
 
     if seen == 0:
         raise RuntimeError("evaluate saw no batches; the loader is empty.")
