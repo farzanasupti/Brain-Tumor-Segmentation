@@ -74,6 +74,7 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `segmetrics.py` | HD95 and average symmetric surface distance |
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
+| `analyze.py` | paired contrasts, effect sizes, Holm correction, TOST |
 | `run_tests.py` | one entry point for the test suites, used by CI |
 | `legacy/` | the original TensorFlow U-Net scripts, superseded |
 
@@ -118,13 +119,28 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-132 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+152 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
 CI runs on every push and on pull requests to `main`: a fast stdlib job across Python
 3.10 and 3.12 that byte-compiles everything and re-derives the committed splits, and a
 full job that installs CPU torch and runs all six suites.
+
+## Analysis
+
+```bash
+python analyze.py --run runs/main                         # Dice
+python analyze.py --run runs/main --metric test_hd95 --lower-is-better
+python analyze.py --run runs/main --margin 0.005          # equivalence testing
+```
+
+The design is paired — every cell trains on the same five folds, and the arms see
+identical geometric transforms item by item — so contrasts are over five fold-level
+*differences*, not two independent samples. With n=5 that means effect sizes with
+confidence intervals rather than bare p-values, Holm correction across the contrast
+family, and **TOST for any claim of no difference**: a non-significant result at n=5 is
+absence of evidence, and reporting it as "backbone-agnostic" would be wrong.
 
 ## Preprocessing note for reporting
 
