@@ -1,5 +1,7 @@
 # Brain-Tumor-Segmentation
 
+[![tests](https://github.com/farzanasupti/Brain-Tumor-Segmentation/actions/workflows/tests.yml/badge.svg)](https://github.com/farzanasupti/Brain-Tumor-Segmentation/actions/workflows/tests.yml)
+
 Tumour-type-conditioned brain tumour segmentation on T1-weighted contrast-enhanced
 MRI, evaluated **patient-disjoint**.
 
@@ -28,7 +30,8 @@ Use the **original `.mat` files**, not the Kaggle PNG mirror — the mirror drop
 type conditioning.
 
 ```bash
-pip install torch torchvision monai einops opencv-python h5py numpy pandas tqdm
+pip install -r requirements.txt      # on a CPU-only box, install torch first:
+                                     #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 python fetch_dataset.py --out data/raw            # 4 zips + cvind.mat, 839 MB
 python prepare_dataset.py --src data/raw --out data/   # -> images/, masks/, manifest.csv
@@ -70,6 +73,7 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `losses.py` | Dice+BCE, joint segmentation + type loss, scoring |
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
+| `run_tests.py` | one entry point for the test suites, used by CI |
 | `legacy/` | the original TensorFlow U-Net scripts, superseded |
 
 `python -m backbones` reports which backbones this environment can actually build.
@@ -99,13 +103,18 @@ number obtained with 80%.
 ## Tests
 
 ```bash
-for t in test_augment test_folds test_backbones test_conditioning test_training test_experiment; do
-    python $t.py
-done
+python run_tests.py            # everything this environment supports
+python run_tests.py --list     # what would run, and what is missing
+python run_tests.py test_folds # one suite
 ```
 
-113 tests, no pytest dependency. `test_augment`, `test_backbones`, `test_conditioning`,
-`test_training` and `test_experiment` need torch; `test_folds` is stdlib only.
+113 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+and reported**, never silently passed — `test_folds` runs on a bare Python, the model
+suites need torch. Individual files still run directly (`python test_augment.py`).
+
+CI runs on every push and on pull requests to `main`: a fast stdlib job across Python
+3.10 and 3.12 that byte-compiles everything and re-derives the committed splits, and a
+full job that installs CPU torch and runs all six suites.
 
 ## Preprocessing note for reporting
 
