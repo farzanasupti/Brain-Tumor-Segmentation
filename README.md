@@ -108,6 +108,13 @@ the mean, because dropping missed slices silently inflates the score. Pass
 `empty_value="diagonal"` for the penalise-instead-of-skip convention, and say which you
 used.
 
+**Micro-batch is a reported hyperparameter.** Models fit different batch sizes in the
+same VRAM — on a 4 GB card at 256 px, U-Net fits 8, the conditioned U-Net 4, SwinUNETR
+8+. `--micro-batch` sets what actually fits and gradient accumulation reaches
+`--batch-size`. This is *not* identical to a true larger batch, because U-Net's
+BatchNorm normalises over the micro-batch; so hold `--micro-batch` equal across cells
+you intend to compare, and report it.
+
 **Predicted masks are kept** under each cell's `predictions/`. A metric thought of after
 45 cells have run can then be computed without retraining any of them.
 
@@ -119,7 +126,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-152 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+156 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 

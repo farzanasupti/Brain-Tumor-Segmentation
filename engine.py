@@ -35,27 +35,50 @@ def _to_device(batch, device):
             batch["type"].to(device, non_blocking=True))
 
 
-def train_epoch(model, loader, criterion, optimizer, device, max_batches=None):
+def train_epoch(model, loader, criterion, optimizer, device, max_batches=None,
+                accumulate=1):
+    """One pass over the data.
+
+    `accumulate` groups that many loader batches into one optimiser step, so a
+    model that only fits a micro-batch of 4 can still train at an effective
+    batch of 16. Note this is *not* identical to a true larger batch: the
+    BatchNorm layers in U-Net normalise over the micro-batch, not the effective
+    one. What matters for a fair comparison is therefore that the micro-batch is
+    held equal across the cells being compared -- report it as a hyperparameter.
+    """
+    if accumulate < 1:
+        raise ValueError(f"accumulate must be >= 1, got {accumulate}.")
+
     model.train()
     totals = {"loss": 0.0, "seg": 0.0, "type": 0.0}
     seen = 0
+    pending = 0
+    optimizer.zero_grad(set_to_none=True)
 
     for i, batch in enumerate(loader):
         if max_batches is not None and i >= max_batches:
             break
         images, masks, types = _to_device(batch, device)
 
-        optimizer.zero_grad(set_to_none=True)
         seg_logits, type_logits = split_output(model(images))
         loss, parts = criterion(seg_logits, masks, type_logits, types)
-        loss.backward()
-        optimizer.step()
+        (loss / accumulate).backward()
+        pending += 1
+
+        if pending == accumulate:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            pending = 0
 
         n = images.size(0)
         totals["loss"] += loss.item() * n
         totals["seg"] += parts["segmentation"].item() * n
         totals["type"] += parts["type"].item() * n
         seen += n
+
+    if pending:                      # a trailing partial group still counts
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
 
     if seen == 0:
         raise RuntimeError("train_epoch saw no batches; the loader is empty.")
@@ -190,7 +213,7 @@ def load_checkpoint(path, model, optimizer=None, device=None):
 def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
         weight_decay=1e-2, type_weight=0.2, dice_weight=0.5, patience=20,
         device=None, checkpoint_path=None, last_path=None, log_path=None,
-        resume=True, max_batches=None, verbose=True):
+        resume=True, max_batches=None, accumulate=1, verbose=True):
     """Train one cell. Returns the best validation metrics and the history."""
     device = device or pick_device()
     model.to(device)
@@ -231,7 +254,7 @@ def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
 
         started = time.time()
         train_stats = train_epoch(model, train_loader, criterion, optimizer,
-                                  device, max_batches)
+                                  device, max_batches, accumulate)
         valid = evaluate(model, valid_loader, criterion, device, max_batches)
         scheduler.step()
 

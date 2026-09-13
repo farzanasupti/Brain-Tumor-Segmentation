@@ -99,7 +99,8 @@ def write_per_slice(path, rows):
 def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=16,
              epochs=150, lr=1e-4, patience=20, type_weight=0.2, seed=42,
              num_workers=2, valid_mode="carve", device=None, max_batches=None,
-             model_kwargs=None, save_predictions=True, verbose=True):
+             model_kwargs=None, save_predictions=True, micro_batch=None,
+             verbose=True):
     """Train and test one cell. Returns the results row.
 
     `model_kwargs` is forwarded to the backbone builder, for the protocol's
@@ -119,13 +120,22 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         kwargs["condition"] = cell["condition"]
     model = backbones.build(cell["backbone"], in_channels=3, out_channels=1, **kwargs)
 
+    # A model that only fits a micro-batch of 4 still trains at the protocol's
+    # effective batch via accumulation. Keep micro_batch equal across compared
+    # cells: BatchNorm normalises over the micro-batch, not the effective batch.
+    micro = micro_batch or batch_size
+    if batch_size % micro:
+        raise ValueError(
+            f"batch_size {batch_size} is not a multiple of micro_batch {micro}.")
+    accumulate = batch_size // micro
+
     common = dict(image_size=image_size, seed=seed, num_workers=num_workers)
     train_loader = make_loader(parts["train"], arm=cell["arm"], training=True,
-                               batch_size=batch_size, **common)
+                               batch_size=micro, **common)
     valid_loader = make_loader(parts["valid"], arm=cell["arm"], training=False,
-                               batch_size=batch_size, **common)
+                               batch_size=micro, **common)
     test_loader = make_loader(parts["test"], arm=cell["arm"], training=False,
-                              batch_size=batch_size, **common)
+                              batch_size=micro, **common)
 
     best_path = os.path.join(cell_dir, "best.pt")
     outcome = fit(
@@ -134,7 +144,7 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         device=device, checkpoint_path=best_path,
         last_path=os.path.join(cell_dir, "last.pt"),
         log_path=os.path.join(cell_dir, "log.csv"),
-        max_batches=max_batches, verbose=verbose,
+        max_batches=max_batches, accumulate=accumulate, verbose=verbose,
     )
 
     # Test the *best* checkpoint, not whatever the last epoch left behind.
@@ -251,7 +261,11 @@ def parse_args():
     parser.add_argument("--folds-only", nargs="+", type=int, default=None,
                         help="restrict to these fold indices")
     parser.add_argument("--image-size", type=int, default=256)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=16,
+                        help="effective batch size, reached by accumulation")
+    parser.add_argument("--micro-batch", type=int, default=None,
+                        help="what actually fits in VRAM; must divide --batch-size. "
+                             "Hold it equal across cells you intend to compare.")
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--patience", type=int, default=20)
@@ -286,6 +300,7 @@ def main():
         epochs=args.epochs, lr=args.lr, patience=args.patience,
         type_weight=args.type_weight, seed=args.seed,
         num_workers=args.num_workers, limit=args.limit,
+        micro_batch=args.micro_batch,
     )
 
 
