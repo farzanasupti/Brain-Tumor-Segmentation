@@ -93,6 +93,29 @@ def cells_carry_their_family_for_the_analysis():
 
 
 @test
+def cell_names_are_safe_as_a_single_path_segment():
+    """A non-conditionable backbone carries condition "n/a", and that slash
+    silently nested every artefact one directory deeper."""
+    for name in (cell_name("unet", "n/a", "standard", 0),
+                 cell_name("cond_unet", "predicted", "region", 3),
+                 cell_name("a/b", "c\\d", "e f", 1)):
+        assert "/" not in name and "\\" not in name and " " not in name, name
+    assert cell_name("unet", "n/a", "standard", 0) == "unet__n-a__standard__f0"
+
+
+@test
+def a_cell_directory_is_exactly_one_level_deep():
+    root = os.path.join(TMP, "r8")
+    records, assignment = build_corpus(root)
+    out = os.path.join(root, "runs")
+    cells = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])
+    run_grid(cells, records, assignment, out, **tiny_kwargs())
+    children = [d for d in os.listdir(out) if os.path.isdir(os.path.join(out, d))]
+    assert children == [cells[0]["cell"]], children
+    assert os.path.exists(os.path.join(out, cells[0]["cell"], "best.pt"))
+
+
+@test
 def cell_names_distinguish_every_axis():
     a = cell_name("cond_unet", "predicted", "region", 0)
     for other in (cell_name("cond_unet", "oracle", "region", 0),

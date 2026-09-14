@@ -353,9 +353,9 @@ def main():
         print()
         print("Patient-averaged and per-type (slice-averaging lets a 38-slice "
               "patient outweigh a 3-slice one):")
+        from experiment import cell_name
         for key in sorted(agg):
-            cell = "__".join(key).replace("/", "-")
-            slices = per_slice_rows(args.run, "__".join((key[0], key[1], key[2])) + "__f0")
+            slices = per_slice_rows(args.run, cell_name(key[0], key[1], key[2], 0))
             if not slices:
                 continue
             mean, n_patients = patient_averaged(slices)

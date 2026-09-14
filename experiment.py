@@ -44,8 +44,16 @@ CONDITIONABLE = ("cond_unet",)
 
 
 def cell_name(backbone, condition, arm, fold):
-    """Stable identifier, used as both the resume key and the directory name."""
-    return f"{backbone}__{condition}__{arm}__f{fold}"
+    """Stable identifier, used as both the resume key and the directory name.
+
+    Factor values are sanitised because they end up as a path segment: the
+    "n/a" condition a non-conditionable backbone carries contains a slash, which
+    silently nests every artefact one directory deeper (runs/x__n/a__y__f0) and
+    breaks outright on Windows.
+    """
+    parts = (str(p).replace("/", "-").replace("\\", "-").replace(" ", "_")
+             for p in (backbone, condition, arm))
+    return "{}__{}__{}__f{}".format(*parts, fold)
 
 
 def enumerate_cells(backbone_names, conditions, arms, fold_ids):
