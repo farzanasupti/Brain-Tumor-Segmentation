@@ -1,0 +1,4 @@
+5 cells in the grid, 0 already done, 5 pending.
+
+[1/5] unet__n-a__standard__f0
+epoch   0  train 0.7149  val 0.6885  dice 0.2120  192.9s *

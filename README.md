@@ -75,6 +75,7 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
 | `analyze.py` | paired contrasts, effect sizes, Holm correction, TOST |
+| `figures.py` | qualitative strips, per-fold plot, per-type breakdown |
 | `PREREGISTRATION.md` | the analysis plan, fixed before any result existed |
 | `run_tests.py` | one entry point for the test suites, used by CI |
 | `legacy/` | the original TensorFlow U-Net scripts, superseded |
