@@ -75,6 +75,7 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
 | `analyze.py` | paired contrasts, effect sizes, Holm correction, TOST |
+| `PREREGISTRATION.md` | the analysis plan, fixed before any result existed |
 | `run_tests.py` | one entry point for the test suites, used by CI |
 | `legacy/` | the original TensorFlow U-Net scripts, superseded |
 
@@ -126,7 +127,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-160 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+162 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
@@ -148,6 +149,12 @@ identical geometric transforms item by item — so contrasts are over five fold-
 confidence intervals rather than bare p-values, Holm correction across the contrast
 family, and **TOST for any claim of no difference**: a non-significant result at n=5 is
 absence of evidence, and reporting it as "backbone-agnostic" would be wrong.
+
+The equivalence margin (±0.005 Dice), the hypotheses, the contrast family, the decision
+rules and the baseline credibility gate are fixed in
+[PREREGISTRATION.md](PREREGISTRATION.md), committed before any result existed.
+`analyze.py` defaults to that margin and flags the output when a different one is
+passed.
 
 ## Preprocessing note for reporting
 

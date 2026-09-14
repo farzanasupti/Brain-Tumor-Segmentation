@@ -12,7 +12,8 @@ import tempfile
 import numpy as np
 
 import analyze
-from analyze import (aggregate, by_tumour_type, contrast, contrast_table, holm,
+from analyze import (REGISTERED_MARGIN, aggregate, by_tumour_type, contrast,
+                     contrast_table, holm,
                      interaction_table, load_results, paired_differences,
                      patient_averaged, summary_table, tost)
 
@@ -162,6 +163,27 @@ def contrasts_only_compare_cells_differing_in_one_factor():
 
 
 # ------------------------------------------------------------ multiplicity
+
+@test
+def the_registered_margin_matches_the_preregistration():
+    """A margin chosen after seeing results is not a margin. It lives in
+    PREREGISTRATION.md and the code must agree with it."""
+    assert REGISTERED_MARGIN == 0.005, REGISTERED_MARGIN
+    doc = os.path.join(os.path.dirname(os.path.abspath(analyze.__file__)),
+                       "PREREGISTRATION.md")
+    assert os.path.exists(doc), "PREREGISTRATION.md is missing"
+    text = open(doc).read()
+    assert "0.005" in text, "the registered margin is not stated in the document"
+
+
+@test
+def an_unregistered_margin_is_flagged_in_the_output():
+    rows = grid({("unet", "n/a", "standard"): [0.80] * 5})
+    rows += grid({("unet", "n/a", "region"): [0.801] * 5})
+    agg = aggregate(load_results(write_results(os.path.join(TMP, "a12"), rows)), "test_dice")
+    assert "(registered)" in contrast_table(agg, margin=REGISTERED_MARGIN)
+    assert "NOT the registered margin" in contrast_table(agg, margin=0.05)
+
 
 @test
 def holm_matches_a_hand_computed_example():

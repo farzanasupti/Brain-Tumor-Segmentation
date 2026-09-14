@@ -37,6 +37,13 @@ except ImportError:
 
 FACTORS = ("backbone", "condition", "arm")
 
+#: Equivalence margin registered in PREREGISTRATION.md before any result
+#: existed: 0.5 Dice points, about a tenth of the published spread across
+#: fourteen backbones on this dataset. Used as the default so a claim of "no
+#: difference" is tested against the registered value rather than one chosen
+#: after seeing the numbers.
+REGISTERED_MARGIN = 0.005
+
 
 def load_results(run_dir):
     """Read results.csv from a run directory."""
@@ -276,7 +283,8 @@ def contrast_table(agg, baseline=None, margin=None):
 
     if margin is not None:
         lines.append("")
-        lines.append(f"Equivalence (TOST) at a margin of +/-{margin}:")
+        registered = " (registered)" if margin == REGISTERED_MARGIN else " (NOT the registered margin)"
+        lines.append(f"Equivalence (TOST) at a margin of +/-{margin}{registered}:")
         for r in results:
             diffs, _ = paired_differences(agg, r["a"], r["b"])
             p_eq = tost(diffs, margin)
@@ -321,8 +329,9 @@ def main():
                         help="set for distance metrics such as test_hd95")
     parser.add_argument("--baseline", default=None,
                         help="restrict contrasts to this cell, as backbone/condition/arm")
-    parser.add_argument("--margin", type=float, default=None,
-                        help="equivalence margin for TOST, e.g. 0.005 Dice")
+    parser.add_argument("--margin", type=float, default=REGISTERED_MARGIN,
+                        help=f"equivalence margin for TOST (default: the "
+                             f"registered {REGISTERED_MARGIN}, see PREREGISTRATION.md)")
     parser.add_argument("--per-slice", action="store_true",
                         help="also report patient-averaged and per-type breakdowns")
     args = parser.parse_args()
