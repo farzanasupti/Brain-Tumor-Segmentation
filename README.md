@@ -126,7 +126,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-156 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+160 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
@@ -152,4 +152,7 @@ absence of evidence, and reporting it as "backbone-agnostic" would be wrong.
 ## Preprocessing note for reporting
 
 `prepare_dataset.py` scales each 16-bit slice to 8-bit by per-slice min–max, because
-window/level varies between scans. Splits are seeded at 42.
+window/level varies between scans. Splits are seeded at 42, and model
+initialisation is seeded per fold — every arm and backbone in a fold starts from the
+same draw, so a contrast between arms is not partly a contrast between two
+initialisations.

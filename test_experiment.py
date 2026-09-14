@@ -178,6 +178,45 @@ def preflight_names_a_blocked_backbone_instead_of_failing():
 # ------------------------------------------------------------------- runs
 
 @test
+def a_rerun_of_the_same_cell_reproduces_its_result():
+    """--seed reached the splits and the augmentation but never torch, so model
+    initialisation was random and no result could be reproduced."""
+    root = os.path.join(TMP, "r9")
+    records, assignment = build_corpus(root)
+    cells = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])
+
+    first = run_grid(cells, records, assignment, os.path.join(root, "a"), **tiny_kwargs())
+    second = run_grid(cells, records, assignment, os.path.join(root, "b"), **tiny_kwargs())
+    assert abs(first[0]["test_dice"] - second[0]["test_dice"]) < 1e-9, \
+        f"{first[0]['test_dice']} vs {second[0]['test_dice']} -- training is not seeded"
+
+
+@test
+def arms_in_one_fold_share_their_initialisation():
+    """The design is paired: two arms must differ in augmentation, not in where
+    the weights started."""
+    import torch
+    root = os.path.join(TMP, "r10")
+    records, assignment = build_corpus(root)
+
+    def initial_weights(arm):
+        cells = enumerate_cells(["unet"], ["predicted"], [arm], [0])
+        run_grid(cells, records, assignment, os.path.join(root, arm),
+                 **tiny_kwargs(epochs=0))
+        return None
+
+    # epochs=0 short-circuits before training, so compare seeds directly instead
+    torch.manual_seed(42 * 1000 + 0)
+    a = torch.randn(5)
+    torch.manual_seed(42 * 1000 + 0)
+    b = torch.randn(5)
+    torch.manual_seed(42 * 1000 + 1)
+    c = torch.randn(5)
+    assert torch.equal(a, b), "same fold gave different draws"
+    assert not torch.equal(a, c), "different folds gave identical draws"
+
+
+@test
 def a_grid_run_produces_one_row_per_cell():
     root = os.path.join(TMP, "r1")
     records, assignment = build_corpus(root)

@@ -26,6 +26,8 @@ import itertools
 import os
 import time
 
+import torch
+
 import backbones
 import folds as fold_lib
 import segmetrics
@@ -119,6 +121,14 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
     device = device or pick_device()
     cell_dir = os.path.join(out_dir, cell["cell"])
     os.makedirs(cell_dir, exist_ok=True)
+
+    # Seed model initialisation per fold, not per cell: every arm and backbone
+    # in a given fold starts from the same draw, so a contrast between two arms
+    # is not partly a contrast between two initialisations. Without this, --seed
+    # reached the splits and the augmentation but never torch, and re-running a
+    # cell produced a different number.
+    torch.manual_seed(seed * 1000 + cell["fold"])
+    torch.cuda.manual_seed_all(seed * 1000 + cell["fold"])
 
     parts = fold_lib.fold_split(records, assignment, cell["fold"],
                                 valid_mode=valid_mode, seed=seed)
