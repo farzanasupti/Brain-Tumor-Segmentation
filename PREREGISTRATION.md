@@ -106,5 +106,26 @@ happens later it is exploratory, and will say so.
 
 ## Deviations
 
-None yet. Each entry: date, what changed, why, and whether the affected result
-becomes exploratory.
+Each entry: date, what changed, why, and whether the affected result becomes
+exploratory.
+
+**2026-09-15 — interim folds inspected before all five completed.** The baseline
+(`unet`, standard arm) was interrupted after folds 0 and 1 finished so the laptop
+could cool. Their test scores were printed to the run log and were then analysed
+(per-slice, pooled and per-type Dice) before folds 2–4 ran. The stopping rule above
+says all five folds complete before numbers are looked at. What did **not** change:
+no fold was added or dropped, no hyperparameter was altered, and folds 2–4 resumed
+under the identical command. The baseline's status is unchanged, since the
+credibility gate applies to the complete five-fold mean; the interim look is recorded
+here so it is not hidden.
+
+**2026-09-15 — credibility gate likely to fail; diagnosis begun, exploratory.**
+Interim folds 0–1 sit well below the published 84.1: per-slice Dice 0.760 / 0.718,
+pooled (dataset-level) Dice 0.786 / 0.757. Zero-Dice slices concentrate in glioma
+(26 of 32; 33 of 51) and in small tumours (median 286 px and 194 px against 546 px and
+450 px overall, at 192 × 192 input). Per the gate, no downstream claim is made until
+this is explained. Two explanations are under test, both **exploratory**: the Dice
+aggregation convention, which accounts for roughly 3–4 points of the gap, and input
+resolution, to be checked on a single fold at 256 × 256 once the baseline finishes.
+That resolution run departs from the registered 192 × 192 and will be reported as a
+diagnostic, not as a result.
