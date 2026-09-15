@@ -15,6 +15,7 @@ import time
 
 import torch
 
+import segmetrics
 from backbones import split_output
 from losses import JointLoss, binary_scores, type_accuracy
 
@@ -34,27 +35,50 @@ def _to_device(batch, device):
             batch["type"].to(device, non_blocking=True))
 
 
-def train_epoch(model, loader, criterion, optimizer, device, max_batches=None):
+def train_epoch(model, loader, criterion, optimizer, device, max_batches=None,
+                accumulate=1):
+    """One pass over the data.
+
+    `accumulate` groups that many loader batches into one optimiser step, so a
+    model that only fits a micro-batch of 4 can still train at an effective
+    batch of 16. Note this is *not* identical to a true larger batch: the
+    BatchNorm layers in U-Net normalise over the micro-batch, not the effective
+    one. What matters for a fair comparison is therefore that the micro-batch is
+    held equal across the cells being compared -- report it as a hyperparameter.
+    """
+    if accumulate < 1:
+        raise ValueError(f"accumulate must be >= 1, got {accumulate}.")
+
     model.train()
     totals = {"loss": 0.0, "seg": 0.0, "type": 0.0}
     seen = 0
+    pending = 0
+    optimizer.zero_grad(set_to_none=True)
 
     for i, batch in enumerate(loader):
         if max_batches is not None and i >= max_batches:
             break
         images, masks, types = _to_device(batch, device)
 
-        optimizer.zero_grad(set_to_none=True)
         seg_logits, type_logits = split_output(model(images))
         loss, parts = criterion(seg_logits, masks, type_logits, types)
-        loss.backward()
-        optimizer.step()
+        (loss / accumulate).backward()
+        pending += 1
+
+        if pending == accumulate:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            pending = 0
 
         n = images.size(0)
         totals["loss"] += loss.item() * n
         totals["seg"] += parts["segmentation"].item() * n
         totals["type"] += parts["type"].item() * n
         seen += n
+
+    if pending:                      # a trailing partial group still counts
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
 
     if seen == 0:
         raise RuntimeError("train_epoch saw no batches; the loader is empty.")
@@ -63,13 +87,20 @@ def train_epoch(model, loader, criterion, optimizer, device, max_batches=None):
 
 @torch.no_grad()
 def evaluate(model, loader, criterion=None, device=None, max_batches=None,
-             per_item=False):
+             per_item=False, boundary=False, save_predictions_to=None):
     """Validation / test pass. Returns mean Dice, IoU, loss and type accuracy.
 
     With per_item=True also returns one row per slice, carrying pid and type so
     results can be aggregated per patient and per tumor type later.
+
+    `boundary=True` adds HD95 and ASSD per slice. They cost a pair of distance
+    transforms each, so they are off during per-epoch validation and on at test
+    time. `save_predictions_to` writes each predicted mask as a PNG, which makes
+    any metric thought of later computable without retraining a single cell.
     """
     device = device or pick_device()
+    if save_predictions_to:
+        os.makedirs(save_predictions_to, exist_ok=True)
     model.eval()
 
     dice_sum = iou_sum = loss_sum = 0.0
@@ -98,18 +129,36 @@ def evaluate(model, loader, criterion=None, device=None, max_batches=None,
             type_correct += (type_logits.argmax(1) == types).sum().item()
             type_seen += n
 
-        if per_item:
+        if per_item or save_predictions_to:
+            pred_masks = (torch.sigmoid(seg_logits) > 0.5).float().cpu().numpy()
+            true_masks = (masks > 0.5).float().cpu().numpy()
             predicted = (type_logits.argmax(1).tolist() if type_logits is not None
                          else [None] * n)
+
             for j in range(n):
-                rows.append({
+                if save_predictions_to:
+                    import cv2
+                    cv2.imwrite(
+                        os.path.join(save_predictions_to,
+                                     f"{batch['slice_id'][j]}.png"),
+                        (pred_masks[j].squeeze() * 255).astype("uint8"))
+                if not per_item:
+                    continue
+
+                row = {
                     "slice_id": batch["slice_id"][j],
                     "pid": batch["pid"][j],
                     "type": int(types[j].item()),
                     "predicted_type": predicted[j],
                     "dice": float(dice[j].item()),
                     "iou": float(iou[j].item()),
-                })
+                    "pred_pixels": int(pred_masks[j].sum()),
+                    "true_pixels": int(true_masks[j].sum()),
+                }
+                if boundary:
+                    row["hd95"] = segmetrics.hd95(pred_masks[j], true_masks[j])
+                    row["assd"] = segmetrics.assd(pred_masks[j], true_masks[j])
+                rows.append(row)
 
     if seen == 0:
         raise RuntimeError("evaluate saw no batches; the loader is empty.")
@@ -138,18 +187,29 @@ def _append_row(path, row):
         writer.writerow({k: row.get(k) for k in EPOCH_FIELDS})
 
 
-def save_checkpoint(path, model, optimizer, epoch, best_dice, history):
+def save_checkpoint(path, model, optimizer, epoch, best_dice, history,
+                    include_optimizer=True):
+    """Write a checkpoint atomically.
+
+    `include_optimizer=False` writes weights only. AdamW keeps two moment
+    tensors per parameter, so its state is roughly twice the size of the
+    weights -- a full checkpoint for this U-Net is 356 MB. Evaluation needs only
+    the weights; resuming needs the optimizer, which is why last.pt keeps it and
+    best.pt does not.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
-    tmp = f"{path}.tmp"
-    torch.save({
+    state = {
         "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
         "epoch": epoch,
         "best_dice": best_dice,
         "history": history,
-    }, tmp)
+    }
+    if include_optimizer:
+        state["optimizer"] = optimizer.state_dict()
+    tmp = f"{path}.tmp"
+    torch.save(state, tmp)
     os.replace(tmp, path)      # atomic: a crash mid-write cannot corrupt the file
 
 
@@ -164,7 +224,7 @@ def load_checkpoint(path, model, optimizer=None, device=None):
 def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
         weight_decay=1e-2, type_weight=0.2, dice_weight=0.5, patience=20,
         device=None, checkpoint_path=None, last_path=None, log_path=None,
-        resume=True, max_batches=None, verbose=True):
+        resume=True, max_batches=None, accumulate=1, verbose=True):
     """Train one cell. Returns the best validation metrics and the history."""
     device = device or pick_device()
     model.to(device)
@@ -205,7 +265,7 @@ def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
 
         started = time.time()
         train_stats = train_epoch(model, train_loader, criterion, optimizer,
-                                  device, max_batches)
+                                  device, max_batches, accumulate)
         valid = evaluate(model, valid_loader, criterion, device, max_batches)
         scheduler.step()
 
@@ -230,8 +290,9 @@ def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
             best_dice = valid["dice"]
             since_improved = 0
             if checkpoint_path:
+                # weights only: best.pt is for evaluation, last.pt for resuming
                 save_checkpoint(checkpoint_path, model, optimizer, epoch,
-                                best_dice, history)
+                                best_dice, history, include_optimizer=False)
         else:
             since_improved += 1
 

@@ -11,8 +11,15 @@ cell in flight and nothing else -- rerun the same command and it picks up.
         --backbones unet cond_unet --arms standard region --limit 4
 
 Per-cell artefacts land under runs/<run-name>/<cell>/: best.pt, last.pt, the
-per-epoch log, and per-slice test scores carrying pid and tumor type so results
-can be aggregated per patient and per type without retraining anything.
+per-epoch log, per-slice test scores carrying pid and tumor type, and the
+predicted masks themselves -- so any metric thought of after the fact can be
+computed without retraining a single cell.
+
+Once a cell's result row is recorded, its last.pt is deleted and best.pt keeps
+weights only. A full checkpoint is 356 MB for this U-Net, two per cell, and the
+conditioned runs would not fit on disk otherwise. Deletion happens strictly
+after the row is written, so an interruption can never lose both the result and
+the means to resume it.
 
 --dry-run is the pre-flight check: it enumerates the grid, reports which
 backbones this environment can actually build, and estimates nothing it has not
@@ -25,15 +32,19 @@ import itertools
 import os
 import time
 
+import torch
+
 import backbones
 import folds as fold_lib
+import segmetrics
 import splits as split_lib
 from dataloading import make_loader
 from engine import evaluate, fit, load_checkpoint, pick_device
 
 RESULT_FIELDS = (
     "cell", "backbone", "family", "condition", "arm", "fold", "seed",
-    "params", "best_valid_dice", "test_dice", "test_iou", "test_type_acc",
+    "params", "best_valid_dice", "test_dice", "test_iou", "test_hd95",
+    "test_hd95_undefined", "test_assd", "test_type_acc",
     "epochs_run", "stopped_early", "seconds", "finished_at",
 )
 
@@ -41,8 +52,16 @@ CONDITIONABLE = ("cond_unet",)
 
 
 def cell_name(backbone, condition, arm, fold):
-    """Stable identifier, used as both the resume key and the directory name."""
-    return f"{backbone}__{condition}__{arm}__f{fold}"
+    """Stable identifier, used as both the resume key and the directory name.
+
+    Factor values are sanitised because they end up as a path segment: the
+    "n/a" condition a non-conditionable backbone carries contains a slash, which
+    silently nests every artefact one directory deeper (runs/x__n/a__y__f0) and
+    breaks outright on Windows.
+    """
+    parts = (str(p).replace("/", "-").replace("\\", "-").replace(" ", "_")
+             for p in (backbone, condition, arm))
+    return "{}__{}__{}__f{}".format(*parts, fold)
 
 
 def enumerate_cells(backbone_names, conditions, arms, fold_ids):
@@ -96,7 +115,8 @@ def write_per_slice(path, rows):
 def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=16,
              epochs=150, lr=1e-4, patience=20, type_weight=0.2, seed=42,
              num_workers=2, valid_mode="carve", device=None, max_batches=None,
-             model_kwargs=None, verbose=True):
+             model_kwargs=None, save_predictions=True, micro_batch=None,
+             verbose=True):
     """Train and test one cell. Returns the results row.
 
     `model_kwargs` is forwarded to the backbone builder, for the protocol's
@@ -108,6 +128,14 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
     cell_dir = os.path.join(out_dir, cell["cell"])
     os.makedirs(cell_dir, exist_ok=True)
 
+    # Seed model initialisation per fold, not per cell: every arm and backbone
+    # in a given fold starts from the same draw, so a contrast between two arms
+    # is not partly a contrast between two initialisations. Without this, --seed
+    # reached the splits and the augmentation but never torch, and re-running a
+    # cell produced a different number.
+    torch.manual_seed(seed * 1000 + cell["fold"])
+    torch.cuda.manual_seed_all(seed * 1000 + cell["fold"])
+
     parts = fold_lib.fold_split(records, assignment, cell["fold"],
                                 valid_mode=valid_mode, seed=seed)
 
@@ -116,13 +144,22 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         kwargs["condition"] = cell["condition"]
     model = backbones.build(cell["backbone"], in_channels=3, out_channels=1, **kwargs)
 
+    # A model that only fits a micro-batch of 4 still trains at the protocol's
+    # effective batch via accumulation. Keep micro_batch equal across compared
+    # cells: BatchNorm normalises over the micro-batch, not the effective batch.
+    micro = micro_batch or batch_size
+    if batch_size % micro:
+        raise ValueError(
+            f"batch_size {batch_size} is not a multiple of micro_batch {micro}.")
+    accumulate = batch_size // micro
+
     common = dict(image_size=image_size, seed=seed, num_workers=num_workers)
     train_loader = make_loader(parts["train"], arm=cell["arm"], training=True,
-                               batch_size=batch_size, **common)
+                               batch_size=micro, **common)
     valid_loader = make_loader(parts["valid"], arm=cell["arm"], training=False,
-                               batch_size=batch_size, **common)
+                               batch_size=micro, **common)
     test_loader = make_loader(parts["test"], arm=cell["arm"], training=False,
-                              batch_size=batch_size, **common)
+                              batch_size=micro, **common)
 
     best_path = os.path.join(cell_dir, "best.pt")
     outcome = fit(
@@ -131,15 +168,23 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         device=device, checkpoint_path=best_path,
         last_path=os.path.join(cell_dir, "last.pt"),
         log_path=os.path.join(cell_dir, "log.csv"),
-        max_batches=max_batches, verbose=verbose,
+        max_batches=max_batches, accumulate=accumulate, verbose=verbose,
     )
 
     # Test the *best* checkpoint, not whatever the last epoch left behind.
     if os.path.exists(best_path):
         load_checkpoint(best_path, model, device=device)
-    metrics, per_slice = evaluate(model, test_loader, None, device,
-                                  max_batches=max_batches, per_item=True)
+    metrics, per_slice = evaluate(
+        model, test_loader, None, device, max_batches=max_batches,
+        per_item=True, boundary=True,
+        save_predictions_to=(os.path.join(cell_dir, "predictions")
+                             if save_predictions else None))
     write_per_slice(os.path.join(cell_dir, "test_slices.csv"), per_slice)
+
+    boundary = segmetrics.summarise([r.get("hd95", float("nan")) for r in per_slice],
+                                    "hd95")
+    surface = segmetrics.summarise([r.get("assd", float("nan")) for r in per_slice],
+                                   "assd")
 
     return {
         **cell,
@@ -148,6 +193,9 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         "best_valid_dice": round(outcome["best_dice"], 6),
         "test_dice": round(metrics["dice"], 6),
         "test_iou": round(metrics["iou"], 6),
+        "test_hd95": round(boundary["hd95"], 4),
+        "test_hd95_undefined": boundary["hd95_undefined"],
+        "test_assd": round(surface["assd"], 4),
         "test_type_acc": (round(metrics["type_acc"], 6)
                           if metrics["type_acc"] is not None else None),
         "epochs_run": outcome["epochs_run"],
@@ -155,6 +203,47 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
         "seconds": round(time.time() - started, 1),
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+
+
+def compact_cell(cell_dir):
+    """Reclaim disk from a finished cell. Returns the bytes freed.
+
+    Deletes last.pt, which exists only to resume an interrupted cell, and strips
+    the optimizer state from best.pt, which evaluation never reads. Call it only
+    for a cell whose result is already recorded -- compact_run() enforces that.
+    """
+    freed = 0
+    last = os.path.join(cell_dir, "last.pt")
+    if os.path.exists(last):
+        freed += os.path.getsize(last)
+        os.remove(last)
+
+    best = os.path.join(cell_dir, "best.pt")
+    if os.path.exists(best):
+        state = torch.load(best, map_location="cpu", weights_only=False)
+        if "optimizer" in state:
+            before = os.path.getsize(best)
+            state.pop("optimizer")
+            tmp = best + ".tmp"
+            torch.save(state, tmp)
+            os.replace(tmp, best)
+            freed += before - os.path.getsize(best)
+    return freed
+
+
+def compact_run(run_dir, results_path=None):
+    """Compact every cell recorded as finished in a run's results.csv.
+
+    Cells not yet in results.csv are left alone, so this is safe to run while a
+    grid is still training -- the in-flight cell keeps its resume state.
+    """
+    results_path = results_path or os.path.join(run_dir, "results.csv")
+    freed = 0
+    for name in sorted(completed_cells(results_path)):
+        cell_dir = os.path.join(run_dir, name)
+        if os.path.isdir(cell_dir):
+            freed += compact_cell(cell_dir)
+    return freed
 
 
 def run_grid(cells, records, assignment, out_dir, *, results_path=None,
@@ -177,10 +266,14 @@ def run_grid(cells, records, assignment, out_dir, *, results_path=None,
         row = run_cell(cell, records, assignment, out_dir, verbose=verbose,
                        **cell_kwargs)
         append_result(results_path, row)
+        # only once the row is durable: an interruption before this line leaves
+        # last.pt in place, so the cell can still resume
+        compact_cell(os.path.join(out_dir, cell["cell"]))
         produced.append(row)
         if verbose:
             print(f"  test Dice {row['test_dice']:.4f}  "
-                  f"IoU {row['test_iou']:.4f}  ({row['seconds']:.0f}s)")
+                  f"IoU {row['test_iou']:.4f}  HD95 {row['test_hd95']:.2f}px  "
+                  f"({row['seconds']:.0f}s)")
     return produced
 
 
@@ -236,7 +329,11 @@ def parse_args():
     parser.add_argument("--folds-only", nargs="+", type=int, default=None,
                         help="restrict to these fold indices")
     parser.add_argument("--image-size", type=int, default=256)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=16,
+                        help="effective batch size, reached by accumulation")
+    parser.add_argument("--micro-batch", type=int, default=None,
+                        help="what actually fits in VRAM; must divide --batch-size. "
+                             "Hold it equal across cells you intend to compare.")
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--patience", type=int, default=20)
@@ -271,6 +368,7 @@ def main():
         epochs=args.epochs, lr=args.lr, patience=args.patience,
         type_weight=args.type_weight, seed=args.seed,
         num_workers=args.num_workers, limit=args.limit,
+        micro_batch=args.micro_batch,
     )
 
 
