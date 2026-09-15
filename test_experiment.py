@@ -217,6 +217,59 @@ def arms_in_one_fold_share_their_initialisation():
 
 
 @test
+def a_cell_keeps_its_resume_state_until_its_result_is_recorded():
+    """Deleting last.pt before the result row exists would let one interruption
+    lose both the result and the means to resume."""
+    root = os.path.join(TMP, "c1")
+    records, assignment = build_corpus(root)
+    cell = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])[0]
+    out = os.path.join(root, "runs")
+    experiment.run_cell(cell, records, assignment, out, **tiny_kwargs())
+    assert os.path.exists(os.path.join(out, cell["cell"], "last.pt")), \
+        "run_cell removed last.pt before the result was recorded"
+
+
+@test
+def a_recorded_cell_keeps_weights_but_drops_resume_state():
+    import torch
+    root = os.path.join(TMP, "c2")
+    records, assignment = build_corpus(root)
+    out = os.path.join(root, "runs")
+    cells = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])
+    run_grid(cells, records, assignment, out, **tiny_kwargs())
+
+    cell_dir = os.path.join(out, cells[0]["cell"])
+    assert not os.path.exists(os.path.join(cell_dir, "last.pt"))
+    state = torch.load(os.path.join(cell_dir, "best.pt"), map_location="cpu",
+                       weights_only=False)
+    assert "optimizer" not in state and "model" in state, sorted(state)
+    model = backbones.build("unet", in_channels=3, out_channels=1,
+                            widths=(4, 8), bottleneck=16)
+    model.load_state_dict(state["model"])
+
+
+@test
+def compacting_a_run_never_touches_an_unfinished_cell():
+    """compact_run is meant to be safe while a grid is still training."""
+    import torch
+    root = os.path.join(TMP, "c3")
+    records, assignment = build_corpus(root)
+    out = os.path.join(root, "runs")
+    done, pending = enumerate_cells(["unet"], ["predicted"], ["standard"], [0, 1])
+    for cell in (done, pending):
+        experiment.run_cell(cell, records, assignment, out, **tiny_kwargs())
+    append_result(os.path.join(out, "results.csv"), {"cell": done["cell"]})
+
+    assert experiment.compact_run(out) > 0, "nothing was reclaimed"
+    assert not os.path.exists(os.path.join(out, done["cell"], "last.pt"))
+    pending_last = os.path.join(out, pending["cell"], "last.pt")
+    assert os.path.exists(pending_last), "an unrecorded cell lost its resume state"
+    assert "optimizer" in torch.load(pending_last, map_location="cpu",
+                                     weights_only=False)
+    assert experiment.compact_run(out) == 0, "compaction is not idempotent"
+
+
+@test
 def a_grid_run_produces_one_row_per_cell():
     root = os.path.join(TMP, "r1")
     records, assignment = build_corpus(root)
@@ -266,7 +319,8 @@ def a_cell_leaves_the_artefacts_the_analysis_needs():
     run_grid(cells, records, assignment, out, **tiny_kwargs())
 
     cell_dir = os.path.join(out, cells[0]["cell"])
-    for name in ("best.pt", "last.pt", "log.csv", "test_slices.csv"):
+    # last.pt is deleted once the result row is recorded; the analysis never reads it
+    for name in ("best.pt", "log.csv", "test_slices.csv"):
         assert os.path.exists(os.path.join(cell_dir, name)), f"missing {name}"
 
     with open(os.path.join(cell_dir, "test_slices.csv"), newline="") as fh:

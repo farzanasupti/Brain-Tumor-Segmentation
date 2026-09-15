@@ -187,18 +187,29 @@ def _append_row(path, row):
         writer.writerow({k: row.get(k) for k in EPOCH_FIELDS})
 
 
-def save_checkpoint(path, model, optimizer, epoch, best_dice, history):
+def save_checkpoint(path, model, optimizer, epoch, best_dice, history,
+                    include_optimizer=True):
+    """Write a checkpoint atomically.
+
+    `include_optimizer=False` writes weights only. AdamW keeps two moment
+    tensors per parameter, so its state is roughly twice the size of the
+    weights -- a full checkpoint for this U-Net is 356 MB. Evaluation needs only
+    the weights; resuming needs the optimizer, which is why last.pt keeps it and
+    best.pt does not.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
-    tmp = f"{path}.tmp"
-    torch.save({
+    state = {
         "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
         "epoch": epoch,
         "best_dice": best_dice,
         "history": history,
-    }, tmp)
+    }
+    if include_optimizer:
+        state["optimizer"] = optimizer.state_dict()
+    tmp = f"{path}.tmp"
+    torch.save(state, tmp)
     os.replace(tmp, path)      # atomic: a crash mid-write cannot corrupt the file
 
 
@@ -279,8 +290,9 @@ def fit(model, train_loader, valid_loader, *, epochs=150, lr=1e-4,
             best_dice = valid["dice"]
             since_improved = 0
             if checkpoint_path:
+                # weights only: best.pt is for evaluation, last.pt for resuming
                 save_checkpoint(checkpoint_path, model, optimizer, epoch,
-                                best_dice, history)
+                                best_dice, history, include_optimizer=False)
         else:
             since_improved += 1
 

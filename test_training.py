@@ -397,6 +397,27 @@ def a_plain_backbone_reports_no_type_accuracy():
 
 
 @test
+def best_checkpoint_is_weights_only_and_last_keeps_the_optimizer():
+    """best.pt is for evaluation and last.pt for resuming; storing optimizer
+    state in both doubled every cell's disk footprint."""
+    root = os.path.join(TMP, "e14")
+    records = make_dataset_on_disk(root, n=8)
+    train = make_loader(records, batch_size=4, image_size=32, num_workers=0)
+    valid = make_loader(records, training=False, batch_size=4, image_size=32,
+                        num_workers=0)
+    best, last = os.path.join(root, "best.pt"), os.path.join(root, "last.pt")
+    fit(tiny_model(), train, valid, epochs=2, patience=10,
+        checkpoint_path=best, last_path=last, verbose=False)
+
+    b = torch.load(best, map_location="cpu", weights_only=False)
+    l = torch.load(last, map_location="cpu", weights_only=False)
+    assert "optimizer" not in b and "model" in b, sorted(b)
+    assert "optimizer" in l, "last.pt lost the state needed to resume"
+    assert os.path.getsize(best) < os.path.getsize(last)
+    load_checkpoint(best, tiny_model())          # still loads for evaluation
+
+
+@test
 def checkpoints_round_trip():
     records = make_dataset_on_disk(os.path.join(TMP, "e5"), n=4)
     path = os.path.join(TMP, "e5", "ckpt.pt")

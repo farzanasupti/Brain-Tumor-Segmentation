@@ -15,6 +15,12 @@ per-epoch log, per-slice test scores carrying pid and tumor type, and the
 predicted masks themselves -- so any metric thought of after the fact can be
 computed without retraining a single cell.
 
+Once a cell's result row is recorded, its last.pt is deleted and best.pt keeps
+weights only. A full checkpoint is 356 MB for this U-Net, two per cell, and the
+conditioned runs would not fit on disk otherwise. Deletion happens strictly
+after the row is written, so an interruption can never lose both the result and
+the means to resume it.
+
 --dry-run is the pre-flight check: it enumerates the grid, reports which
 backbones this environment can actually build, and estimates nothing it has not
 measured.
@@ -199,6 +205,47 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
     }
 
 
+def compact_cell(cell_dir):
+    """Reclaim disk from a finished cell. Returns the bytes freed.
+
+    Deletes last.pt, which exists only to resume an interrupted cell, and strips
+    the optimizer state from best.pt, which evaluation never reads. Call it only
+    for a cell whose result is already recorded -- compact_run() enforces that.
+    """
+    freed = 0
+    last = os.path.join(cell_dir, "last.pt")
+    if os.path.exists(last):
+        freed += os.path.getsize(last)
+        os.remove(last)
+
+    best = os.path.join(cell_dir, "best.pt")
+    if os.path.exists(best):
+        state = torch.load(best, map_location="cpu", weights_only=False)
+        if "optimizer" in state:
+            before = os.path.getsize(best)
+            state.pop("optimizer")
+            tmp = best + ".tmp"
+            torch.save(state, tmp)
+            os.replace(tmp, best)
+            freed += before - os.path.getsize(best)
+    return freed
+
+
+def compact_run(run_dir, results_path=None):
+    """Compact every cell recorded as finished in a run's results.csv.
+
+    Cells not yet in results.csv are left alone, so this is safe to run while a
+    grid is still training -- the in-flight cell keeps its resume state.
+    """
+    results_path = results_path or os.path.join(run_dir, "results.csv")
+    freed = 0
+    for name in sorted(completed_cells(results_path)):
+        cell_dir = os.path.join(run_dir, name)
+        if os.path.isdir(cell_dir):
+            freed += compact_cell(cell_dir)
+    return freed
+
+
 def run_grid(cells, records, assignment, out_dir, *, results_path=None,
              limit=None, verbose=True, **cell_kwargs):
     """Run every cell not already recorded. Returns the rows produced this call."""
@@ -219,6 +266,9 @@ def run_grid(cells, records, assignment, out_dir, *, results_path=None,
         row = run_cell(cell, records, assignment, out_dir, verbose=verbose,
                        **cell_kwargs)
         append_result(results_path, row)
+        # only once the row is durable: an interruption before this line leaves
+        # last.pt in place, so the cell can still resume
+        compact_cell(os.path.join(out_dir, cell["cell"]))
         produced.append(row)
         if verbose:
             print(f"  test Dice {row['test_dice']:.4f}  "

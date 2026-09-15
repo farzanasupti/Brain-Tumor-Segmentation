@@ -55,8 +55,11 @@ python experiment.py --manifest data/manifest.csv --folds data/folds.csv \
 
 One cell is a (backbone, condition, augmentation arm, fold) triple. Finished cells are
 recorded in `runs/<name>/results.csv` and skipped on the next invocation, so an
-interrupted run costs only the cell in flight. Each cell leaves `best.pt`, `last.pt`,
-a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
+interrupted run costs only the cell in flight. Each cell leaves a weights-only `best.pt`, a per-epoch log, per-slice test scores
+carrying patient ID and tumour type, and its predicted masks. `last.pt` holds the
+optimizer state needed to resume and is deleted once the cell's result is recorded;
+`experiment.compact_run(run_dir)` applies the same cleanup to cells that finished
+before this behaviour existed.
 
 ## Layout
 
@@ -128,7 +131,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-162 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+166 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
