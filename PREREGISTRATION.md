@@ -129,3 +129,22 @@ aggregation convention, which accounts for roughly 3–4 points of the gap, and 
 resolution, to be checked on a single fold at 256 × 256 once the baseline finishes.
 That resolution run departs from the registered 192 × 192 and will be reported as a
 diagnostic, not as a result.
+
+**2026-09-15 — augmentation was frozen in every baseline fold; baseline rerun.**
+`make_loader` kept its worker processes alive between epochs. Each worker holds
+its own copy of the dataset, so `set_epoch()` never reached them, and every epoch
+replayed the augmentation drawn at the epoch the workers started. Folds 0–3
+therefore trained on one fixed augmented copy of the training set for their whole
+run. Fold 4 used epoch 0's copy until a lid-close suspend hung the process at
+epoch 28, and epoch 29's copy after the restart. The protocol assumes augmentation
+is redrawn each epoch, so none of these five folds follows it. The bug surfaced
+because training loss doubled on resume while validation Dice held. Unit tests
+had all used `num_workers=0`, where the copy is shared, so they could not show it.
+
+The fix redraws augmentation every epoch, and a regression test covers it with
+real worker processes. The baseline is rerun from scratch under the identical
+command, seeds and folds, into `runs/baseline`. The frozen run is kept as
+`runs/baseline-frozen-aug` and reported only as exploratory. All interim numbers
+in the two entries above come from that frozen run. No hyperparameter changed.
+Its test scores have already been seen, so the rerun is not blind; this is recorded
+here rather than hidden.
