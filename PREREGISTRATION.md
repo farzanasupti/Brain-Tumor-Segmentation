@@ -172,3 +172,11 @@ Two diagnostics, both **exploratory**, neither a claim about any method:
    194 of 196 test patients are also seen in training). Published figures on this
    dataset are generally obtained this way, so this measures how much of the gap is
    protocol rather than model. A leaking number is never reported as our result.
+
+**2026-09-16 — diagnostic 1 (resolution) came back negative.** Fold 0 at 256 × 256
+scored 0.7901 against 0.7914 at the registered 192 × 192: a difference of −0.0013 on
+the same 613 test slices. It did not help where it was supposed to. Small gliomas,
+the hypothesised victims of low resolution, got worse (−0.0287, with zero-Dice
+slices rising from 19 to 27 of 143), while pituitary gained (+0.0138). Resolution is
+therefore ruled out as the explanation for the 6.9-point gap, and the registered
+192 × 192 stands for all confirmatory runs.
