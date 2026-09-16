@@ -148,3 +148,27 @@ command, seeds and folds, into `runs/baseline`. The frozen run is kept as
 in the two entries above come from that frozen run. No hyperparameter changed.
 Its test scores have already been seen, so the rerun is not blind; this is recorded
 here rather than hidden.
+
+**2026-09-16 — the credibility gate failed; two exploratory diagnostics opened.**
+The corrected five-fold baseline scored **0.7719 ± 0.0164** slice-averaged Dice and
+**0.7699 ± 0.0286** patient-averaged, with pooled Dice 0.7846. Against the published
+84.1 that is 6.9 points short (5.6 on the pooled convention), so the gate fails and
+no hypothesis is tested until the gap is explained. Fixing the frozen augmentation
+was worth +0.031 Dice per fold (95% CI +0.023 to +0.039, n=4), which closes part of
+the earlier gap but not this one.
+
+The loss is concentrated in glioma: mean Dice 0.663 with 9.3% zero-Dice slices,
+against 0.894 meningioma and 0.846 pituitary. Tumour size explains less than first
+suspected — the smallest size quartile would add only about 1.1 points if it scored
+like the rest — so resolution is unlikely to be the main cause.
+
+Two diagnostics, both **exploratory**, neither a claim about any method:
+
+1. **Input resolution**, fold 0 at 256 × 256 (`runs/diag-256/`), departing from the
+   registered 192 × 192.
+2. **Split protocol**, fold 0 under a slice-level split that puts slices from the
+   same patient on both sides (`runs/diag-leaky/`, built by
+   `make_slice_level_split.py`; 224 of 233 patients span more than one fold, and
+   194 of 196 test patients are also seen in training). Published figures on this
+   dataset are generally obtained this way, so this measures how much of the gap is
+   protocol rather than model. A leaking number is never reported as our result.
