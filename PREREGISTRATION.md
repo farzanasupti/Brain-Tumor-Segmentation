@@ -180,3 +180,30 @@ the hypothesised victims of low resolution, got worse (−0.0287, with zero-Dice
 slices rising from 19 to 27 of 143), while pituitary gained (+0.0138). Resolution is
 therefore ruled out as the explanation for the 6.9-point gap, and the registered
 192 × 192 stands for all confirmatory runs.
+
+**2026-09-16 — diagnostic 2 (split protocol) came back positive: it accounts for
+about 2.7 of the 6.9 points, and not more.** Fold 0 under the slice-level split
+scored 0.8185 against 0.7914 under the registered patient-disjoint split, a
+difference of +0.0271. The gain is entirely in glioma: 0.6908 → 0.7518 (+0.0610,
+zero-Dice slices 20 → 9 of 286), while meningioma (0.9066 → 0.9016) and pituitary
+(0.8585 → 0.8573) do not move. Boundary metrics shift with it — HD95 10.51 → 7.30 px,
+undefined 9 → 4. This is the signature leakage would be expected to produce: gliomas
+are the multi-slice, most variable cases, where a neighbouring slice from the same
+patient is worth most, and the two types that gain nothing are the two already near
+their ceiling.
+
+Two caveats, recorded so the number is not over-read. The comparison is **not
+paired**: the slice-level split reshuffles, so the 613 test slices are a
+near-identical but not identical set (142 / 285 / 186 by type against 142 / 286 / 185).
+And the leak reaches validation as well — best validation Dice 0.8301 against
+0.7686 — so early stopping ran 108 epochs instead of 62. The leaking arm therefore
+got both an easier test set and more training, and +0.0271 is an upper bound on what
+the protocol alone is worth.
+
+This does not close the gap. Carrying the fold-0 shift onto the five-fold mean of
+0.7719 would reach about 0.799, still roughly 4 points short of 84.1; fold 0's own
+leaking score is 2.3 points short. Protocol explains part of the discrepancy,
+resolution none, and about 4 points remain unexplained. **The credibility gate stays
+failed and no hypothesis is tested.** No confirmatory run adopts the slice-level
+split: the registered patient-disjoint protocol stands, and this number is reported
+only as a measurement of how published figures on this dataset are obtained.
