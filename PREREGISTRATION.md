@@ -207,3 +207,41 @@ resolution none, and about 4 points remain unexplained. **The credibility gate s
 failed and no hypothesis is tested.** No confirmatory run adopts the slice-level
 split: the registered patient-disjoint protocol stands, and this number is reported
 only as a measurement of how published figures on this dataset are obtained.
+
+**2026-09-17 — the two reporting conventions compound; exploratory re-analysis of
+saved predictions.** No new training: slice-averaged, pooled and patient-averaged
+Dice were recomputed from the per-slice test scores already on disk.
+
+| run | slice-avg | pooled | patient-avg |
+|---|---|---|---|
+| baseline, five-fold mean | 0.7719 | 0.7846 | 0.7699 |
+| baseline, fold 0 | 0.7914 | 0.8088 | 0.8033 |
+| slice-level split, fold 0 | 0.8185 | **0.8295** | 0.8185 |
+
+The leaking split *under the pooled convention* reaches 0.8295, 1.15 points from the
+published 84.1. Neither choice alone comes close; together they nearly close the gap.
+Fold 0 flatters, though — it is the best of the five, +0.0242 above the pooled mean —
+so a five-fold leaking pooled number should be expected nearer **0.805, about 3.6
+points short**, and the folds 1–4 runs started 2026-09-17 21:40 will settle it.
+
+That the slice-level split's patient-averaged Dice equals its slice-averaged exactly
+(613 pseudo-patients for 613 slices) is a consistency check on
+`make_slice_level_split.py`, not a result.
+
+**This casts doubt on the gate as written.** It fixes a single published scalar as the
+target, but that scalar's split protocol is now known to differ from ours and its
+aggregation convention is not stated. Depending on which pair of choices 84.1 encodes,
+this baseline is between 1.2 and 6.9 points short — a range wider than the 5.5-point
+spread across fourteen backbones that justifies the equivalence margin above. The gate
+is not being quietly relaxed: it stays failed, and nothing downstream is claimed. But
+the honest form of the remaining question is whether a like-for-like target exists at
+all, and that will be reported rather than resolved by picking the convention that
+flatters.
+
+**2026-09-17 — bookkeeping defect in `results.csv`, no effect on any score.** Baseline
+fold 4 resumed from `last.pt` at epoch 21. Its `epochs_run` (39) and `seconds` (5408)
+count only the post-resume session, not the cell: the log holds 60 epochs totalling
+8535 s. The other four folds are unaffected, having never resumed. `best_valid_dice`,
+the test metrics and `best.pt` all correspond to the true best epoch, so no reported
+Dice changes; only those two metadata columns are wrong, and they must not be used for
+a training-cost table until `experiment.py` accumulates them across resumes.
