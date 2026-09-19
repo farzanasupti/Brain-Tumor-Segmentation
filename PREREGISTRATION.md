@@ -273,12 +273,14 @@ leaving 0.5. Nothing beyond the two reporting choices needs to be invoked.
 
 Two further observations, both from the completed folds:
 
-* **The extra-training confound is dead.** The 2026-09-16 entry warned that the
-  leaking arm also trained longer, because the leak reaches validation. Across five
-  folds the gain runs *opposite* to epoch count: fold 0 trained longest (108 epochs)
-  and gained least (+0.0207), while fold 4 stopped at 20 epochs — against that
-  baseline fold's 60 — and gained most (+0.0638). The gain is the leak, not the
-  epochs.
+* **The extra-training confound is not supported.** The 2026-09-16 entry warned
+  that the leaking arm also trained longer, because the leak reaches validation.
+  Across five folds gain and epoch count are weakly *negatively* correlated
+  (r = −0.21, n=5): fold 0 trained longest (108 epochs) and gained least (+0.0207),
+  while fold 4 stopped at 20 epochs — against that baseline fold's 60 — and gained
+  most (+0.0638). At n=5 this rules the explanation out only loosely, and the two
+  extreme folds carry it; what can be said is that the gain does not increase with
+  training, so extra epochs do not account for it.
 * **Leakage collapses between-fold variance**, from ±0.0165 pooled to ±0.0054, and
   ±0.0164 slice-averaged to ±0.0035. With slices from the same patient on both sides,
   the fold split stops sampling patients, so the patient-level variation that a
