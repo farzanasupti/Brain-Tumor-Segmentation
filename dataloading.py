@@ -123,6 +123,9 @@ def make_loader(records, arm="standard", training=True, batch_size=16,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
         drop_last=False,
-        persistent_workers=bool(num_workers),
+        # Not persistent: each worker holds its own copy of the dataset, so a
+        # persistent worker never sees set_epoch() and replays epoch 0's
+        # augmentation forever. Re-forking per epoch costs about a second.
+        persistent_workers=False,
     )
     return loader
