@@ -245,3 +245,62 @@ count only the post-resume session, not the cell: the log holds 60 epochs totall
 the test metrics and `best.pt` all correspond to the true best epoch, so no reported
 Dice changes; only those two metadata columns are wrong, and they must not be used for
 a training-cost table until `experiment.py` accumulates them across resumes.
+
+**2026-09-19 — diagnostic 2 completed on all five folds: the gap is fully accounted
+for, and the prediction on record was wrong.** The slice-level split was run on folds
+1–4 under the identical command (`runs/diag-leaky/`, five folds, seed 42, 192 × 192).
+
+| convention | patient-disjoint (registered) | slice-level (leaking) | difference |
+|---|---|---|---|
+| slice-averaged | 0.7719 ± 0.0164 | 0.8152 ± 0.0035 | +0.0433 |
+| pooled | 0.7846 ± 0.0165 | **0.8358 ± 0.0054** | +0.0511 |
+| patient-averaged | 0.7699 ± 0.0286 | 0.8152 ± 0.0035 | +0.0453 |
+
+The 2026-09-17 entry predicted about 0.805 pooled and 3.6 points still missing. The
+five-fold leaking pooled figure is **0.8358, 0.52 points from the published 84.1** —
+inside the gate's 1-point tolerance, though not under the gate's protocol. The
+prediction failed because fold 0 flatters the baseline and penalises the leaking arm:
+it is the best baseline fold (+0.0242 pooled above the baseline mean) and the *worst*
+leaking fold (−0.0063 below the leaking mean). Its +0.0207 pooled gain is the smallest
+of the five; folds 1, 2 and 4 gain +0.062, +0.062 and +0.064. Extrapolating a
+protocol effect from one fold understated it by three points, which is the general
+lesson, not a detail about this dataset.
+
+Taking the two conventions in order, the 6.9-point shortfall decomposes as
+**+1.3 points of aggregation** (slice-averaged → pooled, on the registered split)
+and **+5.1 points of split protocol** (patient-disjoint → slice-level, pooled),
+leaving 0.5. Nothing beyond the two reporting choices needs to be invoked.
+
+Two further observations, both from the completed folds:
+
+* **The extra-training confound is dead.** The 2026-09-16 entry warned that the
+  leaking arm also trained longer, because the leak reaches validation. Across five
+  folds the gain runs *opposite* to epoch count: fold 0 trained longest (108 epochs)
+  and gained least (+0.0207), while fold 4 stopped at 20 epochs — against that
+  baseline fold's 60 — and gained most (+0.0638). The gain is the leak, not the
+  epochs.
+* **Leakage collapses between-fold variance**, from ±0.0165 pooled to ±0.0054, and
+  ±0.0164 slice-averaged to ±0.0035. With slices from the same patient on both sides,
+  the fold split stops sampling patients, so the patient-level variation that a
+  five-fold standard deviation is meant to capture disappears. A leaking five-fold
+  result is therefore not merely optimistic in the mean; its error bar is not
+  measuring what it is reported to measure. That is a stronger statement than the
+  mean shift and it does not depend on which aggregation convention a paper uses.
+
+The gain remains concentrated in glioma (0.6627 → 0.7344, zero-Dice slices 9.3% →
+6.2% of 1426), with meningioma (0.8940 → 0.9139) and pituitary (0.8464 → 0.8638)
+moving little — the fold-0 signature, now confirmed at five folds. The comparison is
+still **not paired**: the slice-level split reshuffles, so each fold's test set is a
+near-identical but not identical set of slices.
+
+**Gate status.** As written the gate is not met: under the registered patient-disjoint
+protocol the baseline is 0.7719 slice-averaged, 6.9 points short, and no rerun changes
+that. What the gate also requires — that a shortfall be "investigated and reported"
+before anything downstream is claimed — is now satisfied. The discrepancy is explained
+in full by two reporting conventions that the published number is likely to use and
+that this protocol deliberately does not, with resolution ruled out (2026-09-16) and
+nothing left over. On that basis the registered hypotheses may be tested, under the
+patient-disjoint protocol and the registered slice-averaged Dice, with every number
+reported against this baseline rather than against 84.1. No confirmatory run adopts
+the slice-level split or the pooled convention, and 84.1 is not used as a comparison
+target anywhere, because it is now known to be measured differently.
