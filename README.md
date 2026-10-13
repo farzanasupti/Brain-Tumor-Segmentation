@@ -55,8 +55,11 @@ python experiment.py --manifest data/manifest.csv --folds data/folds.csv \
 
 One cell is a (backbone, condition, augmentation arm, fold) triple. Finished cells are
 recorded in `runs/<name>/results.csv` and skipped on the next invocation, so an
-interrupted run costs only the cell in flight. Each cell leaves `best.pt`, `last.pt`,
-a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
+interrupted run costs only the cell in flight. Each cell leaves a weights-only `best.pt`, a per-epoch log, per-slice test scores
+carrying patient ID and tumour type, and its predicted masks. `last.pt` holds the
+optimizer state needed to resume and is deleted once the cell's result is recorded;
+`experiment.compact_run(run_dir)` applies the same cleanup to cells that finished
+before this behaviour existed.
 
 ## Layout
 
@@ -70,9 +73,13 @@ a per-epoch log, and per-slice test scores carrying patient ID and tumour type.
 | `conditioning.py` | FiLM modulation and the tumour-type head |
 | `backbones/` | model registry — `unet`, `cond_unet`, `swin_unetr`, `swin_umamba` |
 | `dataloading.py` | dataset and loaders |
-| `losses.py` | Dice+BCE, joint segmentation + type loss, scoring |
+| `losses.py` | Dice+BCE, joint segmentation + type loss, Dice/IoU scoring |
+| `segmetrics.py` | HD95 and average symmetric surface distance |
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
+| `analyze.py` | paired contrasts, effect sizes, Holm correction, TOST |
+| `figures.py` | qualitative strips, per-fold plot, per-type breakdown |
+| `PREREGISTRATION.md` | the analysis plan, fixed before any result existed |
 | `run_tests.py` | one entry point for the test suites, used by CI |
 | `legacy/` | the original TensorFlow U-Net scripts, superseded |
 
@@ -100,6 +107,22 @@ only in intensity — which is what within-fold contrasts assume.
 rather than 60/20/20. A model trained on 60% cannot be compared against a published
 number obtained with 80%.
 
+**Boundary distance is undefined when a mask is empty**, and by default HD95 returns
+NaN for those slices. `segmetrics.summarise()` reports how many were undefined next to
+the mean, because dropping missed slices silently inflates the score. Pass
+`empty_value="diagonal"` for the penalise-instead-of-skip convention, and say which you
+used.
+
+**Micro-batch is a reported hyperparameter.** Models fit different batch sizes in the
+same VRAM — on a 4 GB card at 256 px, U-Net fits 8, the conditioned U-Net 4, SwinUNETR
+8+. `--micro-batch` sets what actually fits and gradient accumulation reaches
+`--batch-size`. This is *not* identical to a true larger batch, because U-Net's
+BatchNorm normalises over the micro-batch; so hold `--micro-batch` equal across cells
+you intend to compare, and report it.
+
+**Predicted masks are kept** under each cell's `predictions/`. A metric thought of after
+45 cells have run can then be computed without retraining any of them.
+
 ## Tests
 
 ```bash
@@ -108,7 +131,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-113 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+166 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
@@ -116,7 +139,31 @@ CI runs on every push and on pull requests to `main`: a fast stdlib job across P
 3.10 and 3.12 that byte-compiles everything and re-derives the committed splits, and a
 full job that installs CPU torch and runs all six suites.
 
+## Analysis
+
+```bash
+python analyze.py --run runs/main                         # Dice
+python analyze.py --run runs/main --metric test_hd95 --lower-is-better
+python analyze.py --run runs/main --margin 0.005          # equivalence testing
+```
+
+The design is paired — every cell trains on the same five folds, and the arms see
+identical geometric transforms item by item — so contrasts are over five fold-level
+*differences*, not two independent samples. With n=5 that means effect sizes with
+confidence intervals rather than bare p-values, Holm correction across the contrast
+family, and **TOST for any claim of no difference**: a non-significant result at n=5 is
+absence of evidence, and reporting it as "backbone-agnostic" would be wrong.
+
+The equivalence margin (±0.005 Dice), the hypotheses, the contrast family, the decision
+rules and the baseline credibility gate are fixed in
+[PREREGISTRATION.md](PREREGISTRATION.md), committed before any result existed.
+`analyze.py` defaults to that margin and flags the output when a different one is
+passed.
+
 ## Preprocessing note for reporting
 
 `prepare_dataset.py` scales each 16-bit slice to 8-bit by per-slice min–max, because
-window/level varies between scans. Splits are seeded at 42.
+window/level varies between scans. Splits are seeded at 42, and model
+initialisation is seeded per fold — every arm and backbone in a fold starts from the
+same draw, so a contrast between arms is not partly a contrast between two
+initialisations.

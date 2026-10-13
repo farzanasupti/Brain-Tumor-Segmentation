@@ -288,6 +288,92 @@ def training_actually_reduces_the_loss():
 
 
 @test
+def accumulation_takes_one_step_per_group():
+    """A model that only fits a micro-batch of 4 must still train at the
+    protocol's effective batch of 16."""
+    records = make_dataset_on_disk(os.path.join(TMP, "e10"), n=8)
+    loader = make_loader(records, batch_size=2, image_size=32, num_workers=0)
+
+    class CountingAdam(torch.optim.AdamW):
+        steps = 0
+        def step(self, *a, **k):
+            CountingAdam.steps += 1
+            return super().step(*a, **k)
+
+    for accumulate, expected in ((1, 4), (2, 2), (4, 1)):
+        CountingAdam.steps = 0
+        model = tiny_model()
+        train_epoch(model, loader, JointLoss(), CountingAdam(model.parameters(), lr=1e-3),
+                    pick_device(), accumulate=accumulate)
+        assert CountingAdam.steps == expected, \
+            f"accumulate={accumulate}: {CountingAdam.steps} steps, expected {expected}"
+
+
+@test
+def a_trailing_partial_group_is_not_dropped():
+    """5 micro-batches at accumulate=2 is 2 full groups plus a remainder; losing
+    the remainder would silently discard part of every epoch."""
+    records = make_dataset_on_disk(os.path.join(TMP, "e11"), n=10)
+    loader = make_loader(records, batch_size=2, image_size=32, num_workers=0)
+
+    class CountingAdam(torch.optim.AdamW):
+        steps = 0
+        def step(self, *a, **k):
+            CountingAdam.steps += 1
+            return super().step(*a, **k)
+
+    CountingAdam.steps = 0
+    model = tiny_model()
+    train_epoch(model, loader, JointLoss(), CountingAdam(model.parameters(), lr=1e-3),
+                pick_device(), accumulate=2)
+    assert CountingAdam.steps == 3, f"expected 2 full groups + 1 remainder, got {CountingAdam.steps}"
+
+
+@test
+def accumulation_approximates_a_larger_batch():
+    """Not exactly equal -- BatchNorm normalises over the micro-batch -- but the
+    gradient direction must agree closely or the approximation is worthless."""
+    records = make_dataset_on_disk(os.path.join(TMP, "e12"), n=8)
+    big = make_loader(records, batch_size=8, image_size=32, num_workers=0, shuffle=False)
+    small = make_loader(records, batch_size=2, image_size=32, num_workers=0, shuffle=False)
+
+    def grads(loader, accumulate):
+        torch.manual_seed(0)
+        model = tiny_model()
+        captured = {}
+
+        class Capturing(torch.optim.SGD):
+            def step(self, *a, **k):
+                # grads are live here; train_epoch clears them straight after
+                captured["g"] = torch.cat([p.grad.flatten().clone()
+                                           for p in model.parameters()
+                                           if p.grad is not None])
+                return super().step(*a, **k)
+
+        opt = Capturing(model.parameters(), lr=0.0)          # capture, do not move
+        train_epoch(model, loader, JointLoss(0.0), opt, pick_device(), accumulate=accumulate)
+        return captured["g"]
+
+    a, b = grads(big, 1), grads(small, 4)
+    cos = torch.nn.functional.cosine_similarity(a, b, dim=0).item()
+    assert cos > 0.9, f"accumulated gradient diverged from the full batch (cos={cos:.3f})"
+
+
+@test
+def an_invalid_accumulation_is_rejected():
+    records = make_dataset_on_disk(os.path.join(TMP, "e13"), n=4)
+    loader = make_loader(records, batch_size=2, image_size=32, num_workers=0)
+    model = tiny_model()
+    try:
+        train_epoch(model, loader, JointLoss(), torch.optim.AdamW(model.parameters()),
+                    pick_device(), accumulate=0)
+    except ValueError as exc:
+        assert "accumulate" in str(exc), exc
+        return
+    raise AssertionError("accumulate=0 was accepted")
+
+
+@test
 def evaluate_reports_metrics_and_optional_per_item_rows():
     records = make_dataset_on_disk(os.path.join(TMP, "e3"), n=6)
     loader = make_loader(records, training=False, batch_size=3, image_size=32,
@@ -308,6 +394,27 @@ def a_plain_backbone_reports_no_type_accuracy():
                          num_workers=0)
     metrics = evaluate(tiny_model("unet"), loader, None, pick_device())
     assert metrics["type_acc"] is None
+
+
+@test
+def best_checkpoint_is_weights_only_and_last_keeps_the_optimizer():
+    """best.pt is for evaluation and last.pt for resuming; storing optimizer
+    state in both doubled every cell's disk footprint."""
+    root = os.path.join(TMP, "e14")
+    records = make_dataset_on_disk(root, n=8)
+    train = make_loader(records, batch_size=4, image_size=32, num_workers=0)
+    valid = make_loader(records, training=False, batch_size=4, image_size=32,
+                        num_workers=0)
+    best, last = os.path.join(root, "best.pt"), os.path.join(root, "last.pt")
+    fit(tiny_model(), train, valid, epochs=2, patience=10,
+        checkpoint_path=best, last_path=last, verbose=False)
+
+    b = torch.load(best, map_location="cpu", weights_only=False)
+    l = torch.load(last, map_location="cpu", weights_only=False)
+    assert "optimizer" not in b and "model" in b, sorted(b)
+    assert "optimizer" in l, "last.pt lost the state needed to resume"
+    assert os.path.getsize(best) < os.path.getsize(last)
+    load_checkpoint(best, tiny_model())          # still loads for evaluation
 
 
 @test

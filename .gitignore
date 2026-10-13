@@ -6,3 +6,4 @@ runs/
 data/images/
 data/masks/
 data/raw/
+*.log

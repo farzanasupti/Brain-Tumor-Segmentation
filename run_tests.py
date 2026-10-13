@@ -21,6 +21,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = {
     "test_folds": (),
     "test_augment": ("numpy", "cv2"),
+    "test_segmetrics": ("numpy", "scipy"),
+    "test_analyze": ("numpy", "scipy"),
     "test_backbones": ("torch",),
     "test_conditioning": ("torch",),
     "test_training": ("torch", "cv2", "numpy"),
