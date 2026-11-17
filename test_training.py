@@ -404,6 +404,22 @@ def evaluate_reports_metrics_and_optional_per_item_rows():
 
 
 @test
+def an_oracle_model_trains_and_evaluates_on_the_true_type():
+    """The H2 grid stage crashed on its first batch: the loops never handed the
+    ground-truth type to an oracle model. (That the label then changes the
+    output is checked at model level in test_conditioning.)"""
+    records = make_dataset_on_disk(os.path.join(TMP, "e_oracle"), n=6)
+    loader = make_loader(records, training=False, batch_size=3, image_size=32,
+                         num_workers=0)
+    model = tiny_model("cond_unet", condition="oracle")
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    stats = train_epoch(model, loader, JointLoss(), optimizer, pick_device())
+    assert stats["loss"] == stats["loss"], "oracle training produced NaN"
+    metrics = evaluate(model, loader, JointLoss(), pick_device())
+    assert metrics["n"] == 6
+
+
+@test
 def a_plain_backbone_reports_no_type_accuracy():
     records = make_dataset_on_disk(os.path.join(TMP, "e4"), n=4)
     loader = make_loader(records, training=False, batch_size=2, image_size=32,
