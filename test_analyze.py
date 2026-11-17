@@ -55,6 +55,23 @@ def grid(dice_by_cell, folds=(0, 1, 2, 3, 4)):
 # ------------------------------------------------------------------- loading
 
 @test
+def a_baseline_cell_parses_whichever_way_n_a_is_written():
+    """The docstring's own example, --baseline unet/n-a/standard, used to split
+    into four parts and never match a cell."""
+    want = ("unet", "n/a", "standard")
+    assert analyze.parse_cell("unet/n-a/standard") == want
+    assert analyze.parse_cell("unet/n/a/standard") == want
+    assert analyze.parse_cell("cond_unet/predicted/region") == (
+        "cond_unet", "predicted", "region")
+    try:
+        analyze.parse_cell("unet/standard")
+    except SystemExit as exc:
+        assert "backbone/condition/arm" in str(exc), exc
+        return
+    raise AssertionError("a two-part cell name was accepted")
+
+
+@test
 def results_load_and_coerce():
     root = write_results(os.path.join(TMP, "a1"),
                          grid({("unet", "n/a", "standard"): [0.80, 0.81, 0.79, 0.82, 0.80]}))

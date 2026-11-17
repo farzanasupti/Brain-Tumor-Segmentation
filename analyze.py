@@ -244,6 +244,20 @@ def _differing_factors(a, b):
     return differing
 
 
+def parse_cell(text):
+    """Turn "unet/n-a/standard" into the key ("unet", "n/a", "standard").
+
+    Cells are named backbone/condition/arm, but an unconditioned backbone's
+    condition is "n/a", which itself contains the separator. Accept it written
+    as "n-a" (as in cell directory names) or as "n/a".
+    """
+    parts = text.replace("n/a", "n-a").split("/")
+    if len(parts) != 3:
+        raise SystemExit(f"Cell {text!r} must be backbone/condition/arm, "
+                         f"e.g. unet/n-a/standard.")
+    return tuple("n/a" if p == "n-a" else p for p in parts)
+
+
 def contrast_table(agg, baseline=None, margin=None):
     """Every paired contrast between cells differing in exactly one factor."""
     keys = sorted(agg)
@@ -344,7 +358,7 @@ def main():
     if not agg:
         raise SystemExit(f"No usable values for metric {args.metric!r}.")
 
-    baseline = tuple(args.baseline.replace("n-a", "n/a").split("/")) if args.baseline else None
+    baseline = parse_cell(args.baseline) if args.baseline else None
     if baseline and baseline not in agg:
         raise SystemExit(f"Baseline {args.baseline!r} is not among the cells: "
                          f"{', '.join(label(k) for k in sorted(agg))}")
