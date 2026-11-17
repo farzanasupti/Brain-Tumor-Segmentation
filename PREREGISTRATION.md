@@ -373,3 +373,27 @@ read: it would be a result about **this** implementation, which perturbs more of
 and more strongly than the source, and it must not be reported as a failure to
 replicate Yurdakul et al. A corrected arm matching their stated settings (p = 0.5,
 deviation bound 0.5, smoothed boundary band) is the natural exploratory follow-up.
+
+### 2026-11-18 — Exploratory: the baseline at weight decay 1e-4
+
+Recorded before the run starts. This is the five-fold diagnostic announced in the
+2026-11-17 correction. It is **exploratory**: it is not one of the four registered
+contrasts, it does not enter the Holm family, and its outcome does not change how
+H1–H4 are run or read.
+
+**Run.** `unet/n-a/standard`, folds 0–4, identical to the registered baseline in
+every setting except AdamW weight decay, 1e-4 instead of 1e-2 (the value Yurdakul et
+al. report). Same folds, seed, per-fold initialisation, input size and stopping
+rule, written to `runs/wd1e-4/` so it can never mix with `runs/main/`. It starts
+automatically once the registered grid has finished all 25 cells, so it cannot
+compete with the grid for the GPU.
+
+**Analysis.** Paired over folds against the registered baseline, on slice-averaged
+and patient-averaged Dice, with a 95% CI. How the result will be read, fixed now:
+
+* Mean slice-averaged Dice at 0.831 or above (within one point of 84.1): weight
+  decay accounts for the gap, and the paper says so.
+* A difference from the baseline whose 95% CI lies inside ±0.005: weight decay is
+  ruled out, and the gap stays unexplained.
+* Anything else: weight decay accounts for part of the gap, reported with its CI
+  and no further claim.

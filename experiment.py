@@ -113,8 +113,8 @@ def write_per_slice(path, rows):
 
 
 def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=16,
-             epochs=150, lr=1e-4, patience=20, type_weight=0.2, seed=42,
-             num_workers=2, valid_mode="carve", device=None, max_batches=None,
+             epochs=150, lr=1e-4, weight_decay=1e-2, patience=20,
+             type_weight=0.2, seed=42, num_workers=2, valid_mode="carve", device=None, max_batches=None,
              model_kwargs=None, save_predictions=True, micro_batch=None,
              verbose=True):
     """Train and test one cell. Returns the results row.
@@ -164,7 +164,8 @@ def run_cell(cell, records, assignment, out_dir, *, image_size=256, batch_size=1
     best_path = os.path.join(cell_dir, "best.pt")
     outcome = fit(
         model, train_loader, valid_loader,
-        epochs=epochs, lr=lr, patience=patience, type_weight=type_weight,
+        epochs=epochs, lr=lr, weight_decay=weight_decay, patience=patience,
+        type_weight=type_weight,
         device=device, checkpoint_path=best_path,
         last_path=os.path.join(cell_dir, "last.pt"),
         log_path=os.path.join(cell_dir, "log.csv"),
@@ -336,6 +337,9 @@ def parse_args():
                              "Hold it equal across cells you intend to compare.")
     parser.add_argument("--epochs", type=int, default=150)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-2,
+                        help="AdamW weight decay. 1e-2 is the registered value; "
+                             "anything else is exploratory and needs its own --out")
     parser.add_argument("--patience", type=int, default=20)
     parser.add_argument("--type-weight", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
@@ -365,7 +369,8 @@ def main():
     run_grid(
         cells, records, assignment, args.out,
         image_size=args.image_size, batch_size=args.batch_size,
-        epochs=args.epochs, lr=args.lr, patience=args.patience,
+        epochs=args.epochs, lr=args.lr, weight_decay=args.weight_decay,
+        patience=args.patience,
         type_weight=args.type_weight, seed=args.seed,
         num_workers=args.num_workers, limit=args.limit,
         micro_batch=args.micro_batch,
