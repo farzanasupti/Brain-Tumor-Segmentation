@@ -123,6 +123,22 @@ def augmentation_is_reproducible_within_an_epoch_and_varies_across_them():
 
 
 @test
+def augmentation_varies_across_epochs_through_worker_processes():
+    """set_epoch() runs in the main process; workers hold copies of the dataset.
+    With persistent workers every baseline epoch replayed epoch 0's augmentation,
+    and num_workers=0 -- what every other test uses -- cannot show it."""
+    records = make_dataset_on_disk(os.path.join(TMP, "d9"), n=4)
+    loader = make_loader(records, arm="region", batch_size=4, image_size=32,
+                         num_workers=2, shuffle=False)
+    seen = []
+    for epoch in range(3):
+        loader.dataset.set_epoch(epoch)
+        seen.append(next(iter(loader))["image"])
+    assert not torch.equal(seen[0], seen[1]), "epoch 1 replayed epoch 0 in the workers"
+    assert not torch.equal(seen[1], seen[2]), "epoch 2 replayed epoch 1 in the workers"
+
+
+@test
 def arms_see_identical_geometry_on_the_same_item():
     """Paired arms are what the within-fold contrasts in the analysis assume."""
     records = make_dataset_on_disk(os.path.join(TMP, "d6"), n=4)
@@ -385,6 +401,22 @@ def evaluate_reports_metrics_and_optional_per_item_rows():
     assert metrics["type_acc"] is not None, "conditioned model reported no type accuracy"
     assert len(rows) == 6
     assert {"slice_id", "pid", "type", "predicted_type", "dice", "iou"} <= set(rows[0])
+
+
+@test
+def an_oracle_model_trains_and_evaluates_on_the_true_type():
+    """The H2 grid stage crashed on its first batch: the loops never handed the
+    ground-truth type to an oracle model. (That the label then changes the
+    output is checked at model level in test_conditioning.)"""
+    records = make_dataset_on_disk(os.path.join(TMP, "e_oracle"), n=6)
+    loader = make_loader(records, training=False, batch_size=3, image_size=32,
+                         num_workers=0)
+    model = tiny_model("cond_unet", condition="oracle")
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    stats = train_epoch(model, loader, JointLoss(), optimizer, pick_device())
+    assert stats["loss"] == stats["loss"], "oracle training produced NaN"
+    metrics = evaluate(model, loader, JointLoss(), pick_device())
+    assert metrics["n"] == 6
 
 
 @test

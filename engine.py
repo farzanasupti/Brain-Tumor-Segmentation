@@ -35,6 +35,17 @@ def _to_device(batch, device):
             batch["type"].to(device, non_blocking=True))
 
 
+def _forward(model, images, types):
+    """Run the model, handing it the ground-truth type only in oracle mode.
+
+    The oracle cells condition the decoder on the true label, so they need it
+    at the call; every other backbone's forward() takes the image alone.
+    """
+    if getattr(model, "condition", None) == "oracle":
+        return split_output(model(images, type_target=types))
+    return split_output(model(images))
+
+
 def train_epoch(model, loader, criterion, optimizer, device, max_batches=None,
                 accumulate=1):
     """One pass over the data.
@@ -60,7 +71,7 @@ def train_epoch(model, loader, criterion, optimizer, device, max_batches=None,
             break
         images, masks, types = _to_device(batch, device)
 
-        seg_logits, type_logits = split_output(model(images))
+        seg_logits, type_logits = _forward(model, images, types)
         loss, parts = criterion(seg_logits, masks, type_logits, types)
         (loss / accumulate).backward()
         pending += 1
@@ -113,7 +124,7 @@ def evaluate(model, loader, criterion=None, device=None, max_batches=None,
             break
         images, masks, types = _to_device(batch, device)
 
-        seg_logits, type_logits = split_output(model(images))
+        seg_logits, type_logits = _forward(model, images, types)
         dice, iou = binary_scores(seg_logits, masks)
 
         n = images.size(0)

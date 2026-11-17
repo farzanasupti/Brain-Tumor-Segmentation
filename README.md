@@ -131,7 +131,7 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-166 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
+167 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
 and reported**, never silently passed — `test_folds` runs on a bare Python, the model
 suites need torch. Individual files still run directly (`python test_augment.py`).
 
