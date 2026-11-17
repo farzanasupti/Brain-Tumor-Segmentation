@@ -192,6 +192,29 @@ def a_rerun_of_the_same_cell_reproduces_its_result():
 
 
 @test
+def weight_decay_reaches_the_optimizer():
+    """The exploratory weight-decay run needs --weight-decay to change what fit()
+    trains with; a flag that stopped at the parser would rerun the baseline."""
+    root = os.path.join(TMP, "wd")
+    records, assignment = build_corpus(root)
+    cells = enumerate_cells(["unet"], ["predicted"], ["standard"], [0])
+    seen, original = [], experiment.fit
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs["weight_decay"])
+        return original(*args, **kwargs)
+
+    experiment.fit = spy
+    try:
+        run_grid(cells, records, assignment, os.path.join(root, "default"), **tiny_kwargs())
+        run_grid(cells, records, assignment, os.path.join(root, "low"),
+                 **tiny_kwargs(weight_decay=1e-4))
+    finally:
+        experiment.fit = original
+    assert seen == [1e-2, 1e-4], seen
+
+
+@test
 def arms_in_one_fold_share_their_initialisation():
     """The design is paired: two arms must differ in augmentation, not in where
     the weights started."""
