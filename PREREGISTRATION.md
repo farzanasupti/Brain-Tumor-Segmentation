@@ -306,3 +306,52 @@ patient-disjoint protocol and the registered slice-averaged Dice, with every num
 reported against this baseline rather than against 84.1. No confirmatory run adopts
 the slice-level split or the pooled convention, and 84.1 is not used as a comparison
 target anywhere, because it is now known to be measured differently.
+
+### 2026-11-17 — Correction: the 84.1 gap is not explained by leakage
+
+The 2026-09-19 entry concluded that the 6.9-point shortfall is "explained in full by
+two reporting conventions that the published number is likely to use". That
+conclusion is withdrawn. The source of the 84.1 (Yurdakul, Ersoy, Özger, Pacal,
+J. Clin. Med. 2026, 15:5508, doi 10.3390/jcm15145508, Table 2: U-Net 84.1 ± 1.6)
+states a stratified group five-fold split at patient ID, so its figure is not
+inflated by a slice-level split. Its ±1.6 also matches our patient-disjoint spread
+(±0.0164), not the collapsed leaking spread (±0.0035–0.0054). That the five-fold
+leaking pooled figure landed 0.52 points from 84.1 was a coincidence, not a
+reconstruction.
+
+What stands from the 2026-09-19 entry: the measured effects of the split and of the
+aggregation convention on our own model, the variance collapse, the glioma
+concentration, and the failed single-fold prediction. Those describe what leakage does
+on this dataset and apply to studies that did split at slice level. They do not apply
+to 84.1.
+
+What is now open: the gap between our patient-disjoint baseline (0.7719
+slice-averaged) and 84.1 under the same split unit. Documented differences from the
+source protocol are weight decay (ours 1e-2, theirs 1e-4; untested) and input size
+(192 vs 256; tested on fold 0 only, −0.0013). A five-fold run at weight decay 1e-4 is
+planned after the registered grid, as an exploratory diagnostic.
+
+**Gate status, revised.** The gate's escape clause required the shortfall to be
+investigated and reported before anything downstream is claimed. The investigation
+has been reported, including this correction, and the shortfall is now recorded as
+unexplained. The decision to test the registered hypotheses stands, on the same
+terms as before: patient-disjoint protocol, slice-averaged Dice, every number against
+this baseline and none against 84.1. What changes is the stated reason the baseline
+falls short, which is now "unknown", not "reporting conventions".
+
+### 2026-11-17 — Prediction recorded before H3 folds 1–4 and H4 run
+
+The registered region-wise arm applies separate Bézier curves inside and outside the
+ground-truth mask on every training image (`p_bezier = 1.0`). That puts an intensity
+discontinuity exactly on the label boundary of every training image and on none at
+test time. Measured on 100 training slices, the boundary jump divided by the image
+standard deviation has median 1.55 for `region` against 0.39 for `standard` and 0.33
+for `global`; it exceeds 1 on 62% of `region` slices against 8% and 3%. Fold 0 of
+H3 fits this: training loss 0.014 (standard ≈ 0.08), validation Dice 0.60, test
+Dice 0.5746 against 0.7914 for standard.
+
+The arm runs as registered, unmodified. **Prediction:** H3 (`region` − `standard`)
+will be negative on all five folds, and H4 (`region` − `global`) will be negative,
+because the region arm teaches a boundary shortcut that test images do not provide.
+A corrected region arm (applied with probability below 1, with the boundary blended)
+may be run afterwards and will be labelled exploratory.
