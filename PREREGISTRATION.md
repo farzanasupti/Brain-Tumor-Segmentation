@@ -397,3 +397,48 @@ and patient-averaged Dice, with a 95% CI. How the result will be read, fixed now
   ruled out, and the gap stays unexplained.
 * Anything else: weight decay accounts for part of the gap, reported with its CI
   and no further claim.
+
+### 2026-11-18 — Exploratory: a region arm with the source's settings
+
+Recorded before the run starts. This is the corrected arm anticipated in the two
+2026-11-17 entries. It is **exploratory**: it is not part of H3 or H4, it does not
+enter the Holm family, and it does not replace the registered `region` arm, whose
+result stands as registered.
+
+**Arm.** `region-bounded` in `augment.py` follows Yurdakul et al. (2026, §3.2 and
+§3.4) where they state a setting. It is applied with probability 0.5 (`p_aug`). Interior
+control-point ordinates are drawn within 0.5 of their abscissae (the "deviation
+bound"). The monotonic regime orders them and the other regime leaves them unordered,
+with no reversal. The two remapped regions are blended through a Gaussian-blurred
+mask instead of a hard composite ("a narrow boundary band can be smoothed"). The
+paper gives no band width, so σ = 2 px at 192 px input is our choice, fixed here.
+Everything else — geometric stream, folds, seed, initialisation, optimiser at the
+registered weight decay 1e-2, stopping rule — matches the registered arms.
+
+**Shortcut check, measured before training.** This is the same measure as on
+2026-11-17: the rim intensity step over image sd, on the same 100 training slices.
+
+| arm | median | share of slices > 1 sd |
+|---|---|---|
+| standard | 0.39 | 8% |
+| global | 0.33 | 3% |
+| region (registered) | 1.55 | 62% |
+| region-bounded | 0.36 | 13% |
+
+The bounded arm no longer marks the label boundary beyond what the standard arm
+does.
+
+**Run.** `unet/n-a/region-bounded`, folds 0–4, written to `runs/region-bounded/`.
+It starts automatically after the weight-decay run has recorded all five folds.
+
+**Analysis.** Paired over folds, on slice-averaged and patient-averaged Dice, with
+95% CIs, against `unet/n-a/standard` (the main contrast) and against the registered
+`unet/n-a/region`. How it will be read, fixed now:
+
+* `region-bounded` − `standard` with a 95% CI above zero: label-aware augmentation
+  helps once the boundary shortcut is removed. A negative registered H3 is then a
+  result about the registered settings.
+* A CI inside ±0.005: no detectable benefit at these settings, which is
+  equivalence under the registered margin.
+* A CI below zero: the arm hurts even without the shortcut.
+* Anything else: inconclusive, reported with its CI.
