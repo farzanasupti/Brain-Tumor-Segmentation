@@ -355,3 +355,21 @@ will be negative on all five folds, and H4 (`region` − `global`) will be negat
 because the region arm teaches a boundary shortcut that test images do not provide.
 A corrected region arm (applied with probability below 1, with the boundary blended)
 may be run afterwards and will be labelled exploratory.
+
+### 2026-11-17 — The registered region arm differs from its source method
+
+Checked against the full text of Yurdakul et al. (2026, §3.2 and §3.4), recorded
+before H3 folds 1–4 and H4 finish. Their region-wise Bézier augmentation is applied
+"with probability paug" set to 0.5, samples interior control points "within a bounded
+range around the identity diagonal" with "the deviation bound ... fixed at 0.5", and
+notes that "a narrow boundary band can be smoothed to avoid a visible seam". Our
+`augment.py`, as registered, applies it to every training image (`p_bezier = 1.0`),
+samples control points over the full unit square, and does not smooth the boundary.
+Our non-monotonic regime also reverses the whole curve, where theirs relaxes the
+ordering constraint.
+
+The arm still runs as registered. This entry changes how a negative H3 or H4 may be
+read: it would be a result about **this** implementation, which perturbs more often
+and more strongly than the source, and it must not be reported as a failure to
+replicate Yurdakul et al. A corrected arm matching their stated settings (p = 0.5,
+deviation bound 0.5, smoothed boundary band) is the natural exploratory follow-up.

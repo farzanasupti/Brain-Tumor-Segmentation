@@ -5,8 +5,9 @@ claim did not survive a check of its source: v1 explained our gap to a published
 84.1 Dice as leakage, but that figure (Yurdakul et al. 2026) was measured under a
 patient-disjoint split, so leakage cannot explain it. The measurements below are
 unchanged and reproducible from committed run artefacts without a GPU
-(`python leakage.py --out figures/`). Items marked `[VERIFY]` must be checked
-against the primary source before submission.
+(`python leakage.py --out figures/`). Citations were checked against the primary
+papers on 2026-11-17 (notes at the end); the one remaining `[VERIFY]` is a
+bibliographic detail.
 
 ---
 
@@ -14,8 +15,9 @@ against the primary source before submission.
 
 On the Cheng T1-CE brain-tumour dataset, every patient contributes several
 near-identical slices, so a split drawn over slices rather than patients places
-the same tumour on both sides of the evaluation boundary. Several published
-segmentation studies on this dataset split at slice level `[VERIFY]`. We measure
+the same tumour on both sides of the evaluation boundary. Published segmentation
+studies on this dataset often describe their split only as image counts, with no
+mention of patients. We measure
 what that choice is worth, holding everything else fixed: one U-Net, the same
 data, five folds under a pre-registered patient-disjoint protocol and five under a
 slice-level split. The slice-level split raises Dice by **+4.3 points**
@@ -34,7 +36,7 @@ weak evidence of which split a paper used.
 
 ## 1. Introduction
 
-The Cheng dataset `[CITE: Cheng et al. 2015/2016; figshare 1512427]` (3064 T1-CE
+The Cheng dataset [Cheng 2017; Cheng et al. 2015] (3064 T1-CE
 slices from 233 patients; meningioma 708, glioma 1426, pituitary 930) is a
 standard testbed for brain-tumour segmentation and classification. It is
 distributed as slices, and per-patient slice counts run from 1 to 38. That
@@ -42,12 +44,18 @@ organisation makes one mistake easy: a split drawn with an ordinary
 `train_test_split` over slices puts neighbouring slices of one tumour into both
 training and test, and neighbouring slices of one tumour are nearly the same image.
 
-The literature on this benchmark mixes both kinds of protocol. The related-work
-table of Yurdakul et al. (2026, Table 1) lists several prior segmentation studies that
-split at slice level (Gupta et al. 2023; Avazov et al. 2024; Rai et al. 2024)
-`[VERIFY each against the original paper]`, while their own benchmark uses a
-patient-grouped split. Numbers from the two kinds of study are then read on the
-same scale. How far apart are they, for an identical model?
+The literature on this benchmark mixes protocols, and often does not say which
+one it used. Gupta et al. (2023) divide the data into "train (2485 instances),
+validation (274 instances), and test (305 instances) sets"; Rai et al. (2024) give
+their split as image counts (2482 / 337 / 245); Preetha et al. (2025) use a 90:10
+split of 3064 slices "stratified" by tumour category. None of the three mentions
+grouping by patient, although the patient identifier ships with the data. Avazov
+et al. (2024) state the opposite: "The dataset was split on a patient ID basis,
+allocating 80% for training and 20% for testing, to prevent data leakage", and
+report 93.0 DSC. Yurdakul et al. (2026) use stratified group five-fold
+cross-validation at patient level and report 84.1 for U-Net. Numbers from these
+studies are then read on the same scale. How far apart can two protocols put an
+identical model?
 
 We did not set out to answer this. It came out of a pre-registered conditioning
 study whose baseline fell short of a published figure, which led us to measure
@@ -69,8 +77,8 @@ each reporting convention directly (Section 5 explains how that gap now stands).
 
 ## 2. Protocol
 
-**Data.** Cheng et al., figshare 1512427 v5 (CC BY 4.0) `[CITE]`. 3064 slices,
-233 patients.
+**Data.** Cheng, figshare doi 10.6084/m9.figshare.1512427, v5 (CC BY 4.0).
+3064 slices, 233 patients.
 
 **Patient-disjoint protocol (registered).** Stratified group five-fold at patient
 ID, seed 42, committed before any run. Validation is carved from the training
@@ -138,8 +146,9 @@ The collapse also runs in reverse, as weak evidence. On this dataset, at this
 scale, a patient-disjoint five-fold U-Net shows σ ≈ 0.016, and a leaking one
 σ ≈ 0.004–0.005. A reported σ near the lower value is consistent with a leaking
 split; one near the higher value is consistent with a patient-level split. For
-example, Yurdakul et al. report 84.1 ± 1.6 for U-Net under a patient-grouped split
-`[VERIFY: Table 2]`, in line with our patient-disjoint spread. σ also depends on
+example, Yurdakul et al. report 84.1 ± 1.6 for U-Net under stratified group
+five-fold cross-validation at patient level (their Table 2), in line with our
+patient-disjoint spread; their thirteen other models range from ± 0.9 to ± 1.7. σ also depends on
 the model, the fold count and the number of patients, so this is a consistency
 check, not a test, and we do not use it to classify any specific paper.
 
@@ -182,14 +191,16 @@ trusted, including ours.
 
 **Scores from the two protocols are not on the same scale.** A 4–5 point
 difference from the split alone, and up to 6.4 points once aggregation is
-included, is as large as many of the improvements reported between architectures
-on this benchmark `[VERIFY: cite a representative spread with its source]`.
+included, is as large as the differences between architectures on this benchmark: the
+fourteen models Yurdakul et al. benchmark under one patient-level protocol span
+84.0 to 89.6 Dice, 5.6 points, and the thirteen existing architectures among them
+span 3.9 (their Table 2).
 Rankings that mix slice-level and patient-level studies are therefore uninformative
 about the methods being ranked.
 
 **What we are not claiming.** We have not audited any study's code. Where we
-describe a published protocol, we rely on that paper's own description or on a
-another paper's reading of it, and each such statement is marked for verification. We
+describe a published protocol, we quote that paper's own description. Where a
+paper gives only image counts, we say so rather than inferring its split unit. We
 claim that the conventions we measured are enough to move an ordinary U-Net by
 the amounts shown, that they are often unstated, and that a reader cannot always
 tell which was used.
@@ -203,7 +214,8 @@ uninformative about generalisation unless the folds sample patients.
 
 Under the same split unit as Yurdakul et al. (patient-grouped five-fold), our
 U-Net reaches 0.7719 slice-averaged against their 84.1, a gap of 6.9 points
-(5.6 if their figure is pooled `[VERIFY: their aggregation]`). Leakage cannot
+(5.6 if their figure is pooled). They report "the mean across the five held-out
+patient-level folds" without saying how Dice is aggregated within a fold. Leakage cannot
 explain this gap, and we do not claim it does. The parameter counts match (31.0M),
 as do learning rate, batch size, epoch budget, patience, loss weighting and
 schedule. The remaining documented differences are:
@@ -212,7 +224,7 @@ schedule. The remaining documented differences are:
 |---|---|---|---|
 | weight decay | 1e-2 | 1e-4 | **untested** |
 | input size | 192 | 256 | tested on fold 0 only: −0.0013 |
-| augmentation for the baseline | geometric only | `[VERIFY]` | untested |
+| augmentation for the baseline | geometric only | not stated | untested |
 
 Section 3.4 is a reason not to over-read the fold-0 resolution test. A five-fold
 run at weight decay 1e-4 is the next experiment and needs roughly 12–15 GPU-hours.
@@ -237,10 +249,34 @@ cross-validated error bar is not a smaller error bar, it is a different quantity
 
 ## Before submission
 
-1. **Citations.** Cheng et al. (dataset). Yurdakul, Ersoy, Özger, Pacal, J. Clin.
-   Med. 2026, 15:5508, doi 10.3390/jcm15145508 (84.1 ± 1.6, Table 2;
-   prior protocols, Table 1). Gupta 2023, Avazov 2024, Rai 2024: confirm from each original
-   paper that the split is at slice level, quoting their wording.
+1. **Citations, checked 2026-11-17 against full text** (PMC via the NCBI API; Gupta
+   via arXiv). References:
+   - Cheng J. Brain Tumor Dataset. figshare, 2017 (v5). doi 10.6084/m9.figshare.1512427.
+   - Cheng J, et al. Enhanced performance of brain tumor classification via tumor
+     region augmentation and partition. PLoS ONE 2015;10(10):e0140381.
+     doi 10.1371/journal.pone.0140381.
+   - Yurdakul M, Ersoy, Özger, Pacal. Region-wise Bézier intensity augmentation for
+     domain-generalized brain tumor segmentation with a Mamba U-Net. J Clin Med
+     2026;15(14):5508. doi 10.3390/jcm15145508. PMC13413108.
+   - Gupta A, Dixit M, Mishra VK, Singh A, Dayal A. Brain tumor segmentation from MRI
+     images using deep learning techniques. 12th International Advanced Computing
+     Conference (IACC), Springer, pp. 434–448; arXiv 2305.00257. `[VERIFY: proceedings
+     year and DOI; Yurdakul's reference list gives 2022, their Table 1 says 2023]`.
+     Reports F1 and mean IoU only, no Dice.
+   - Avazov K, Mirzakhalilov S, Umirzakova S, Abdusalomov A, Cho YI. Dynamic focus on
+     tumor boundaries: a lightweight U-Net for MRI brain tumor segmentation.
+     Bioengineering 2024;11(12):1302. doi 10.3390/bioengineering11121302.
+   - Rai HM, Yoo J, Dashkevych S. Two-headed UNetEfficientNets for parallel execution
+     of segmentation and classification of brain tumors. J Cancer Res Clin Oncol
+     2024;150:220. doi 10.1007/s00432-024-05718-1.
+   - Preetha R, Priyadarsini MJP, Nisha JS. Brain tumor segmentation using
+     multi-scale attention U-Net with EfficientNetB4 encoder. Sci Rep 2025;15:9914.
+     doi 10.1038/s41598-025-94267-9.
+
+   **Correction to our own notes.** Yurdakul et al.'s Table 1 lists Avazov et al.
+   as "slice-level". Avazov et al. say they split by patient ID. We follow the
+   original paper. Gupta and Rai are listed there as slice-level; their papers give
+   image counts only, which is consistent with that but does not state it.
 2. **The weight-decay run (§5).** Five folds, patient-disjoint, weight decay 1e-4.
    Runs after the registered grid. Either result is reportable: if it closes the
    gap, §5 becomes a short note on sensitivity to weight decay; if not, the gap
