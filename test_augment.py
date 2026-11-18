@@ -263,6 +263,69 @@ def invalid_configuration_is_rejected():
         raise AssertionError("invalid configuration was accepted")
 
 
+# ---------------------------------------------------------- bounded arm
+
+@test
+def bounded_curves_stay_near_the_identity():
+    """Control ordinates within 0.5 of their abscissae keep the whole curve
+    within 0.5 of the diagonal: a convex combination of within-bound points."""
+    rng = np.random.default_rng(11)
+    for monotonic in (True, False):
+        for _ in range(300):
+            xs, ys = sample_bezier_curve(rng, monotonic=monotonic, deviation=0.5)
+            assert np.all(np.abs(ys - xs) <= 0.5 + 1e-9)
+            assert ys[0] == 0.0 and ys[-1] == 1.0, "bounded curves are never reversed"
+
+
+@test
+def bounded_arm_applies_about_half_the_time():
+    image, mask = synthetic_slice()
+    plain = Augmenter("standard", seed=21)
+    bounded = Augmenter("region-bounded", seed=21)
+    assert bounded.p_bezier == 0.5 and Augmenter("region").p_bezier == 1.0
+    changed = 0
+    for _ in range(400):
+        a, _ = plain(image, mask)
+        b, _ = bounded(image, mask)
+        changed += not np.array_equal(a, b)
+    assert 160 < changed < 240, changed
+
+
+@test
+def bounded_arm_softens_the_boundary_step():
+    """The registered region arm writes the mask outline into the image; the
+    blended composition must leave a smaller step at the boundary. A flat
+    image has no boundary of its own, so any step is the augmentation's."""
+    import cv2
+    _, mask = synthetic_slice(96, 96)
+    image = np.full(mask.shape, 0.5, dtype=np.float32)
+    m = mask[..., 0] > 0.5
+    k = np.ones((3, 3), np.uint8)
+    inner = m & ~cv2.erode(m.astype(np.uint8), k).astype(bool)
+    outer = cv2.dilate(m.astype(np.uint8), k).astype(bool) & ~m
+
+    def step(img):
+        g = img[..., 0]
+        return abs(g[inner].mean() - g[outer].mean())
+
+    rng_hard, rng_soft = np.random.default_rng(5), np.random.default_rng(5)
+    hard = [step(bezier_region_wise(image, mask, rng_hard)) for _ in range(200)]
+    soft = [step(augment.bezier_region_bounded(image, mask, rng_soft))
+            for _ in range(200)]
+    assert np.median(soft) < np.median(hard), (np.median(soft), np.median(hard))
+
+
+@test
+def bounded_arm_keeps_mask_and_range():
+    image, mask = synthetic_slice()
+    rgb = np.repeat(image, 3, axis=-1)
+    rng = np.random.default_rng(2)
+    for img in (image, rgb):
+        out = augment.bezier_region_bounded(img, mask, rng)
+        assert out.shape == img.shape and out.dtype == np.float32
+        assert out.min() >= 0.0 and out.max() <= 1.0
+
+
 # ------------------------------------------------------------- geometric
 
 @test

@@ -6,6 +6,11 @@ geometric augmentation; the Bezier arms add an intensity transform on top.
     "standard"  flip / rotate / scale only                  (control)
     "global"    standard + one Bezier curve over the image  (ablation)
     "region"    standard + separate curves for tumor and background
+    "region-bounded"
+                region, with the source paper's stated settings (exploratory,
+                PREREGISTRATION.md 2026-11-18): applied with probability 0.5,
+                control points within 0.5 of the identity diagonal, and the
+                two remapped regions blended across a narrow boundary band
 
 The control arm deliberately includes geometric augmentation. A control with no
 augmentation at all would measure "augmentation vs none" and say nothing about
@@ -58,7 +63,15 @@ time and the input is returned untouched.
 
 import numpy as np
 
-ARMS = ("standard", "global", "region")
+ARMS = ("standard", "global", "region", "region-bounded")
+
+#: Settings of the "region-bounded" arm, from Yurdakul et al. (2026), sec. 3.2
+#: and 3.4: p_aug = 0.5, deviation bound 0.5, and "a narrow boundary band can be
+#: smoothed to avoid a visible seam". The paper gives no band width; sigma 2 px
+#: at 192 px input is our choice, fixed before the run.
+BOUNDED_P_BEZIER = 0.5
+BOUNDED_DEVIATION = 0.5
+BOUNDED_BAND_SIGMA = 2.0
 
 #: Samples along the curve. 256 is ample for 8-bit-derived data; the cost is a
 #: one-off array build per curve, not per pixel.
@@ -71,11 +84,23 @@ def _as_rng(rng):
     return np.random.default_rng(rng)
 
 
-def sample_bezier_curve(rng=None, monotonic=True, n_samples=CURVE_SAMPLES):
+def sample_bezier_curve(rng=None, monotonic=True, n_samples=CURVE_SAMPLES,
+                        deviation=None):
     """Sample a cubic Bezier transfer function.
 
     Returns (xs, ys) with xs strictly increasing, ready for np.interp.
-    Monotonic curves run (0,0) -> (1,1); non-monotonic ones run (0,1) -> (1,0).
+
+    With `deviation=None` (the registered arms), control points are drawn from
+    the whole unit square; monotonic curves run (0,0) -> (1,1) and
+    non-monotonic ones are order-reversed, (0,1) -> (1,0).
+
+    With a `deviation` bound (the "region-bounded" arm), each interior control
+    point's ordinate is drawn within `deviation` of its abscissa, i.e. around
+    the identity diagonal, and clipped to [0,1]. The monotonic regime orders the
+    ordinates; the other regime leaves them unordered, as the source describes.
+    Nothing is reversed. By the argument in the module docstring an unordered
+    curve inside the unit square still cannot fold, so this second regime is a
+    stronger contrast remap rather than an inversion.
     """
     rng = _as_rng(rng)
 
@@ -83,7 +108,13 @@ def sample_bezier_curve(rng=None, monotonic=True, n_samples=CURVE_SAMPLES):
     # single-valued function of intensity. Ordered y controls keep the
     # monotonic regime genuinely order-preserving.
     x1, x2 = np.sort(rng.uniform(0.0, 1.0, size=2))
-    y1, y2 = np.sort(rng.uniform(0.0, 1.0, size=2))
+    if deviation is None:
+        y1, y2 = np.sort(rng.uniform(0.0, 1.0, size=2))
+    else:
+        y1, y2 = np.clip(np.array([x1, x2])
+                         + rng.uniform(-deviation, deviation, size=2), 0.0, 1.0)
+        if monotonic:
+            y1, y2 = np.sort([y1, y2])
 
     t = np.linspace(0.0, 1.0, n_samples)
     mt = 1.0 - t
@@ -99,7 +130,7 @@ def sample_bezier_curve(rng=None, monotonic=True, n_samples=CURVE_SAMPLES):
     xs[0], xs[-1] = 0.0, 1.0
     ys[0], ys[-1] = 0.0, 1.0
 
-    if not monotonic:
+    if not monotonic and deviation is None:
         ys = ys[::-1].copy()             # order-reversing: 0 -> 1, 1 -> 0
 
     return xs, ys
@@ -137,6 +168,39 @@ def bezier_region_wise(image, mask, rng=None, p_monotonic=0.5):
     background = apply_transfer(image, xs_b, ys_b)
 
     return np.where(np.asarray(mask) > 0.5, tumor, background).astype(
+        np.float32, copy=False)
+
+
+def bezier_region_bounded(image, mask, rng=None, p_monotonic=0.5,
+                          deviation=BOUNDED_DEVIATION,
+                          band_sigma=BOUNDED_BAND_SIGMA):
+    """Region-wise curves near the identity, blended across the boundary.
+
+    The hard composition in `bezier_region_wise` writes the mask outline into
+    the image as an intensity step. Here the two remapped images are mixed by a
+    Gaussian-blurred mask, so the step is spread over a band of a few pixels.
+    The mask itself is still neither modified nor transformed.
+    """
+    import cv2  # local, as in standard_augment
+
+    rng = _as_rng(rng)
+
+    xs_t, ys_t = sample_bezier_curve(rng, monotonic=rng.random() < p_monotonic,
+                                     deviation=deviation)
+    xs_b, ys_b = sample_bezier_curve(rng, monotonic=rng.random() < p_monotonic,
+                                     deviation=deviation)
+
+    tumor = apply_transfer(image, xs_t, ys_t)
+    background = apply_transfer(image, xs_b, ys_b)
+
+    hard = (np.asarray(mask) > 0.5).astype(np.float32)
+    weight = cv2.GaussianBlur(np.squeeze(hard, axis=-1) if hard.ndim == 3 else hard,
+                              (0, 0), band_sigma)
+    weight = np.clip(weight, 0.0, 1.0)
+    if np.asarray(image).ndim == 3:
+        weight = weight[..., None]
+
+    return (weight * tumor + (1.0 - weight) * background).astype(
         np.float32, copy=False)
 
 
@@ -191,9 +255,13 @@ class Augmenter:
     within-fold contrasts assume.
     """
 
-    def __init__(self, arm="standard", p_monotonic=0.5, p_bezier=1.0, seed=None):
+    def __init__(self, arm="standard", p_monotonic=0.5, p_bezier=None, seed=None):
         if arm not in ARMS:
             raise ValueError(f"Unknown arm {arm!r}; expected one of {ARMS}.")
+        if p_bezier is None:
+            # Registered arms perturb every image; the bounded arm uses the
+            # source's p_aug.
+            p_bezier = BOUNDED_P_BEZIER if arm == "region-bounded" else 1.0
         if not 0.0 <= p_bezier <= 1.0:
             raise ValueError(f"p_bezier must be in [0,1], got {p_bezier}.")
         if not 0.0 <= p_monotonic <= 1.0:
@@ -219,6 +287,9 @@ class Augmenter:
         if self.arm != "standard" and self.intensity_rng.random() < self.p_bezier:
             if self.arm == "global":
                 image = bezier_global(image, self.intensity_rng, self.p_monotonic)
+            elif self.arm == "region-bounded":
+                image = bezier_region_bounded(image, mask, self.intensity_rng,
+                                              self.p_monotonic)
             else:
                 image = bezier_region_wise(image, mask, self.intensity_rng,
                                            self.p_monotonic)
