@@ -124,6 +124,14 @@ mask, through two independent curves. Curves are monotonic with probability 0.5,
 and otherwise order-reversing. As registered, both B\'ezier arms apply to every
 image with control points drawn from the full unit square. Yurdakul et al.\ use
 probability 0.5, a deviation bound of 0.5 and boundary smoothing~\cite{yurdakul2026}.
+We therefore add an exploratory \emph{bounded region} arm, specified and
+registered before it ran, that follows the source wherever it states a setting.
+It applies with probability 0.5 and draws each interior control ordinate within
+0.5 of its abscissa, unordered in the non-monotonic regime and never reversed.
+It blends the two remapped regions through a Gaussian-blurred mask
+($\sigma=2$\,px; the source gives no band width) instead of a hard composite.
+It is compared with \emph{standard} as an exploratory contrast outside the Holm
+family.
 
 \noindent\textbf{Training and statistics.}
 Input $192\times192$, effective batch 16, AdamW (learning rate $10^{-4}$, weight
@@ -131,7 +139,8 @@ decay $10^{-2}$), cosine schedule, at most 150 epochs, early stopping on
 validation Dice with patience 20. Initialisation is seeded per fold, shared across
 arms. Co-primary outcomes are slice-averaged and patient-averaged Dice. Each of
 four hypotheses is a paired comparison over five folds: H1 predicted vs.\ U-Net,
-H2 oracle vs.\ predicted, H3 region vs.\ standard, H4 region vs.\ global. We
+H2 oracle vs.\ predicted, H3 region vs.\ standard, H4 region vs.\ global. Exploratory analyses (weight decay, bounded region)
+use the same paired test without multiplicity correction and are labelled as such. We
 report paired $t$-tests with 95\% CIs, Holm-corrected ($m=4$), and TOST against
 a registered margin of $\pm0.005$ Dice.
 
@@ -212,7 +221,34 @@ boundary, divided by the image standard deviation, was 0.39 (standard), 0.33
 of slices. On fold 0 the region arm reached a training loss of 0.014 but a test
 Dice of 0.5746, against 0.7914 for standard. This measurement and the prediction
 that H3 and H4 would be negative were recorded before the remaining folds.
-\pending{five-fold H3 and H4; corrected-arm result if run.}
+\pending{five-fold H3 and H4.}
+
+\noindent\textbf{Bounded region arm (exploratory).}
+On the same 100 slices, the bounded arm's median boundary step is 0.36, and 13\%
+of slices exceed one standard deviation (Table~\ref{tab:step}). This is the
+standard arm's level, so the label outline is no longer written into the image.
+\pending{five-fold bounded region $-$ standard, slice- and patient-averaged Dice
+with 95\% CIs. Reading fixed before the run: a CI above zero means the
+augmentation helps once the shortcut is removed; a CI inside $\pm0.005$ means no
+benefit at the source's settings; a CI below zero means it hurts even without
+the shortcut.}
+
+\begin{table}[t]
+\centering
+\caption{Intensity step across the tumour boundary, in units of the image
+standard deviation, on 100 training slices after augmentation.}
+\label{tab:step}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+arm & median step & slices $>1$ sd\\
+\midrule
+standard & 0.39 & 8\%\\
+global & 0.33 & 3\%\\
+region (registered) & 1.55 & 62\%\\
+bounded region (exploratory) & 0.36 & 13\%\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Discussion and Conclusion}
 \pending{after results: why type information does or does not help; what the
@@ -223,7 +259,9 @@ augmentation as a shortcut and the settings that limit it; the open 84.1 gap.}
 One dataset, one architecture family, one seed per fold and five folds, so
 intervals are wide. The protocol comparison is unpaired. The registered region arm
 perturbs more often and more strongly than the source method~\cite{yurdakul2026},
-so a negative H3 describes this implementation, not theirs.
+so a negative H3 describes this implementation, not theirs; the bounded arm
+tests the source's settings but on a U-Net, not their Mamba U-Net, and with a
+boundary band width we had to choose.
 
 \bibliographystyle{splncs04}
 \bibliography{../journal/refs}
