@@ -2,22 +2,15 @@
 
 [![tests](https://github.com/farzanasupti/Brain-Tumor-Segmentation/actions/workflows/tests.yml/badge.svg)](https://github.com/farzanasupti/Brain-Tumor-Segmentation/actions/workflows/tests.yml)
 
-Tumour-type-conditioned brain tumour segmentation on T1-weighted contrast-enhanced
-MRI, evaluated **patient-disjoint**.
+This is my brain tumour segmentation project on T1-weighted contrast-enhanced MRI. I test whether telling a U-Net what kind of tumour it is looking at helps it draw the tumour better, and I evaluate everything with patients kept apart between training and testing.
 
-## What this is
+## The idea
 
-Meningioma, glioma and pituitary tumours differ in location, margin and enhancement,
-and the Cheng dataset labels every slice with its type. Existing work on this dataset
-either ignores those labels or predicts them from a shared encoder alongside
-segmentation; none use them to *steer* the segmentation decoder. This repository does,
-via FiLM modulation of every decoder stage driven by a predicted type posterior.
+Meningiomas, gliomas and pituitary tumours look different. They sit in different places, have different edges and enhance differently, and the Cheng dataset labels every slice with its type. As far as I could find, earlier work on this dataset either ignores those labels or predicts them from a shared encoder next to the segmentation. None of it uses the type to *steer* the decoder. That's what I try here: a small head predicts the tumour type, and that prediction modulates every decoder stage through FiLM.
 
-Evaluation is patient-disjoint throughout. On this dataset that matters more than
-usual: 3064 slices come from only 233 patients — about 13 slices each at 6 mm
-thickness — so neighbouring slices are near-duplicates. Under a random slice-level
-split, **195 of the 233 patients (83.7%) land in more than one split**, and the test
-set measures interpolation between memorised slices rather than generalization.
+I keep patients separate across splits throughout, and on this dataset that matters a lot. The 3,064 slices come from only 233 patients, about 13 slices each at 6 mm thickness, so neighbouring slices are nearly identical. If you split slices at random, **195 of the 233 patients (83.7%) end up in more than one split**. The test set then mostly measures how well the model fills in between slices it has already memorised, not how it does on a new patient.
+
+I wrote down the hypotheses and the analysis plan in [PREREGISTRATION.md](PREREGISTRATION.md) before I had any results.
 
 ## Data
 
@@ -25,9 +18,9 @@ Cheng et al., 3064 T1-CE slices, 233 patients, meningioma 708 / glioma 1426 /
 pituitary 930. [figshare 1512427 v5](https://doi.org/10.6084/m9.figshare.1512427.v5),
 CC BY 4.0.
 
-Use the **original `.mat` files**, not the Kaggle PNG mirror — the mirror drops
-`cjdata.PID` and `cjdata.label`, so it supports neither patient-disjoint folds nor
-type conditioning.
+Use the **original `.mat` files**, not the Kaggle PNG mirror. The mirror drops
+`cjdata.PID` and `cjdata.label`, so you can't build patient-disjoint folds or
+condition on type from it.
 
 ```bash
 pip install -r requirements.txt      # on a CPU-only box, install torch first:
@@ -38,8 +31,9 @@ python prepare_dataset.py --src data/raw --out data/   # -> images/, masks/, man
 python folds.py --manifest data/manifest.csv --out data/folds.csv
 ```
 
-`data/manifest.csv` and `data/folds.csv` are committed, so the splits are reproducible
-without re-downloading. The archives read directly — no need to unzip.
+I've committed `data/manifest.csv` and `data/folds.csv`, so you get the same splits
+without downloading anything. The scripts read the archives directly, so there's no
+need to unzip them.
 
 ## Running an experiment
 
@@ -53,9 +47,10 @@ python experiment.py --manifest data/manifest.csv --folds data/folds.csv \
     --backbones unet cond_unet --arms standard region --limit 4
 ```
 
-One cell is a (backbone, condition, augmentation arm, fold) triple. Finished cells are
-recorded in `runs/<name>/results.csv` and skipped on the next invocation, so an
-interrupted run costs only the cell in flight. Each cell leaves a weights-only `best.pt`, a per-epoch log, per-slice test scores
+A cell is one (backbone, condition, augmentation arm, fold) combination. I ran the
+whole grid on a 4 GB laptop GPU, so it had to survive interruptions: finished cells go
+into `runs/<name>/results.csv` and are skipped next time, and a crash only costs the
+cell that was running. Each cell leaves a weights-only `best.pt`, a per-epoch log, per-slice test scores
 carrying patient ID and tumour type, and its predicted masks. `last.pt` holds the
 optimizer state needed to resume and is deleted once the cell's result is recorded;
 `experiment.compact_run(run_dir)` applies the same cleanup to cells that finished
@@ -71,7 +66,7 @@ before this behaviour existed.
 | `folds.py` | stratified group k-fold at patient level, persisted to CSV |
 | `augment.py` | augmentation arms: standard, global Bézier, region-wise Bézier |
 | `conditioning.py` | FiLM modulation and the tumour-type head |
-| `backbones/` | model registry — `unet`, `cond_unet`, `swin_unetr`, `swin_umamba` |
+| `backbones/` | model registry: `unet`, `cond_unet`, `swin_unetr`, `swin_umamba` |
 | `dataloading.py` | dataset and loaders |
 | `losses.py` | Dice+BCE, joint segmentation + type loss, Dice/IoU scoring |
 | `segmetrics.py` | HD95 and average symmetric surface distance |
@@ -85,43 +80,45 @@ before this behaviour existed.
 
 `python -m backbones` reports which backbones this environment can actually build.
 
-## Conventions worth knowing
+## Things I decided along the way
 
 **Every backbone returns logits.** Pair them with a loss that applies its own sigmoid,
 and apply sigmoid exactly once at inference.
 
-**Conditioning has three modes.** `predicted` — a type head reads the bottleneck and
-its posterior conditions the decoder; nothing outside the image is needed at inference.
-This is the method. `oracle` — ground-truth type conditions the decoder; it leaks a
-label and is an upper bound, not a result. `none` — disabled, for the ablation.
+**Conditioning has three modes.** In `predicted`, a type head reads the bottleneck and
+its prediction conditions the decoder, so nothing beyond the image is needed at
+inference. That's the actual method. In `oracle`, the true type conditions the decoder.
+It uses a label the model wouldn't have in practice, so I treat it as an upper bound,
+not a result. `none` turns conditioning off for the ablation.
 
-**FiLM starts as the identity,** so a conditioned model and a plain one begin as the
-same function and any gain is attributable to conditioning rather than to a different
-initialisation. Conditioning costs +10,755 parameters, 0.03%.
+**FiLM starts as the identity.** A conditioned model and a plain one start out as the
+same function, so any difference comes from the conditioning and not from a different
+starting point. Conditioning adds 10,755 parameters, about 0.03%.
 
-**Augmentation arms are paired.** Geometric and intensity draws come from separate
-seeded streams, so two arms see identical flips and rotations on every item and differ
-only in intensity — which is what within-fold contrasts assume.
+**Augmentation arms are paired.** Geometric and intensity randomness come from separate
+seeded streams, so two arms see the same flips and rotations on every image and differ
+only in intensity. The within-fold comparisons rely on that.
 
-**Validation is carved from the training folds**, not given a fold of its own: 70/10/20
-rather than 60/20/20. A model trained on 60% cannot be compared against a published
-number obtained with 80%.
+**Validation comes out of the training folds** instead of getting a fold of its own, so
+the split is 70/10/20 rather than 60/20/20. I wanted to compare against a published
+number that was trained on 80% of the data, and a model trained on 60% wouldn't be a
+fair comparison.
 
-**Boundary distance is undefined when a mask is empty**, and by default HD95 returns
-NaN for those slices. `segmetrics.summarise()` reports how many were undefined next to
-the mean, because dropping missed slices silently inflates the score. Pass
-`empty_value="diagonal"` for the penalise-instead-of-skip convention, and say which you
+**Boundary distance isn't defined when a mask is empty**, so by default HD95 returns
+NaN for those slices. `segmetrics.summarise()` prints how many were undefined next to
+the mean, because quietly dropping missed slices makes the score look better than it
+is. If you'd rather penalise them, pass `empty_value="diagonal"`, and say which one you
 used.
 
-**Micro-batch is a reported hyperparameter.** Models fit different batch sizes in the
-same VRAM — on a 4 GB card at 256 px, U-Net fits 8, the conditioned U-Net 4, SwinUNETR
-8+. `--micro-batch` sets what actually fits and gradient accumulation reaches
-`--batch-size`. This is *not* identical to a true larger batch, because U-Net's
-BatchNorm normalises over the micro-batch; so hold `--micro-batch` equal across cells
-you intend to compare, and report it.
+**Micro-batch size is something to report.** Different models fit different batch
+sizes in the same memory. On my 4 GB card at 256 px, U-Net fits 8, the conditioned
+U-Net 4, and SwinUNETR 8 or more. `--micro-batch` sets what actually fits, and gradient
+accumulation makes up the rest of `--batch-size`. That isn't quite the same as a real
+larger batch, because U-Net's BatchNorm only sees the micro-batch. So keep
+`--micro-batch` the same across cells you want to compare, and report it.
 
-**Predicted masks are kept** under each cell's `predictions/`. A metric thought of after
-45 cells have run can then be computed without retraining any of them.
+**I keep the predicted masks** under each cell's `predictions/`. If I think of a new
+metric after 45 cells have run, I can compute it without retraining anything.
 
 ## Tests
 
@@ -131,9 +128,9 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-167 tests, no pytest dependency. Suites whose dependencies are absent are **skipped
-and reported**, never silently passed — `test_folds` runs on a bare Python, the model
-suites need torch. Individual files still run directly (`python test_augment.py`).
+There are 167 tests and they don't need pytest. If a suite's dependencies are missing,
+it's **skipped and reported**, never quietly counted as passing. `test_folds` runs on
+plain Python, and the model suites need torch. Individual files still run directly (`python test_augment.py`).
 
 CI runs on every push and on pull requests to `main`: a fast stdlib job across Python
 3.10 and 3.12 that byte-compiles everything and re-derives the committed splits, and a
@@ -147,23 +144,23 @@ python analyze.py --run runs/main --metric test_hd95 --lower-is-better
 python analyze.py --run runs/main --margin 0.005          # equivalence testing
 ```
 
-The design is paired — every cell trains on the same five folds, and the arms see
-identical geometric transforms item by item — so contrasts are over five fold-level
-*differences*, not two independent samples. With n=5 that means effect sizes with
-confidence intervals rather than bare p-values, Holm correction across the contrast
-family, and **TOST for any claim of no difference**: a non-significant result at n=5 is
-absence of evidence, and reporting it as "backbone-agnostic" would be wrong.
+The design is paired. Every cell trains on the same five folds, and the arms see the
+same geometric transforms image by image, so each comparison is over five fold-level
+*differences*, not two independent samples. With only five, I report effect sizes with
+confidence intervals instead of bare p-values, apply Holm correction across the
+family of comparisons, and use **TOST before claiming two things are the same**. A
+non-significant result from five folds doesn't show there's no difference, so I don't
+report it as if it did.
 
-The equivalence margin (±0.005 Dice), the hypotheses, the contrast family, the decision
-rules and the baseline credibility gate are fixed in
-[PREREGISTRATION.md](PREREGISTRATION.md), committed before any result existed.
-`analyze.py` defaults to that margin and flags the output when a different one is
-passed.
+The equivalence margin (±0.005 Dice), the hypotheses, the set of comparisons, the
+decision rules and the baseline check are all fixed in
+[PREREGISTRATION.md](PREREGISTRATION.md), which I committed before any results existed.
+`analyze.py` uses that margin by default and flags the output if you pass a different
+one.
 
 ## Preprocessing note for reporting
 
-`prepare_dataset.py` scales each 16-bit slice to 8-bit by per-slice min–max, because
-window/level varies between scans. Splits are seeded at 42, and model
-initialisation is seeded per fold — every arm and backbone in a fold starts from the
-same draw, so a contrast between arms is not partly a contrast between two
-initialisations.
+`prepare_dataset.py` scales each 16-bit slice to 8-bit by its own min and max, because
+window and level vary between scans. Splits use seed 42, and model initialisation is
+seeded per fold. Every arm and backbone in a fold starts from the same random draw, so
+comparing two arms doesn't also mean comparing two different initialisations.
