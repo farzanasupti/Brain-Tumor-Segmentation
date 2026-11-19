@@ -98,11 +98,7 @@ should follow from the problem~\cite{maierhein2024}, and benchmark variance is
 large enough to produce spurious improvements~\cite{bouthillier2021}.
 
 \noindent\textbf{Type conditioning.}
-FiLM conditions features through a learned per-channel scale and
-shift~\cite{perez2018}. On this dataset, segmentation and classification have
-usually been parallel heads on a shared encoder~\cite{rai2024}. We instead
-condition the decoder on the type posterior. \todo{search for prior
-class-conditioned decoders in medical segmentation before claiming novelty.}
+FiLM conditions features through a learned per-channel scale and shift~\cite{perez2018}, and conditioning segmentation networks on non-imaging labels this way is well established. FiLM layers driven by the ground-truth tumour type improved spinal-tumour segmentation ~\cite{lemay2021}, whereas FiLM conditioned on MRI contrast or heart size gave no gain over a well-tuned U-Net ~\cite{vincent2020,jacenkow2019}, and universal models condition their decoders or heads on task or class embeddings ~\cite{zhang2021dodnet,liu2023clip,ye2023uniseg}. On the Cheng dataset, segmentation and type classification have usually been parallel heads on a shared encoder ~\cite{rai2024}; we instead feed the network's own type posterior to FiLM layers on the decoder. Our contribution is not the mechanism but a pre-registered test of whether it helps, bounded above by an oracle that receives the true type.
 
 \noindent\textbf{B\'ezier intensity augmentation and shortcuts.}
 Models Genesis introduced monotonic cubic B\'ezier intensity
@@ -291,7 +287,7 @@ bounded region (exploratory) & 0.36 & 13\%\\
 \section{Discussion and Conclusion}
 Type conditioning did not help, and the oracle arm shows why it is unlikely
 to: the decoder gains almost nothing even from the true type, so there is little
-for a better type predictor to unlock. A FiLM shift on the decoder may simply
+for a better type predictor to unlock. Lemay et al.\ reported a gain of about five Dice points from the true tumour type on spinal-cord tumours, evaluated over random splits~\cite{lemay2021}; under patient-disjoint folds we see none, even with the oracle. A FiLM shift on the decoder may simply
 duplicate information the encoder already passes on through the skip
 connections. We cannot rule out a small benefit; at five folds, neither
 contrast is equivalent to zero within the registered margin.

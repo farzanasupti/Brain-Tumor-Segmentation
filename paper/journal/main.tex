@@ -103,13 +103,7 @@ identical model, and how leakage changes the cross-validated variance itself.
 
 Feature-wise linear modulation (FiLM) conditions a network's intermediate features
 on side information through a learned per-channel scale and shift
-\citep{perez2018}. On the Cheng dataset, segmentation and type classification
-have usually been treated as parallel tasks, for example as two heads on a shared
-encoder \citep{rai2024}. We test a tighter coupling: the decoder is
-FiLM-conditioned on the type posterior from the network's own classification
-head. We also report an oracle variant conditioned on the true type, which bounds
-what any type head could contribute. \todo{search for prior class-conditioned
-decoders in medical segmentation before claiming novelty here.}
+\citep{perez2018}. Conditioning segmentation networks on non-imaging labels is well established. FiLM layers driven by the ground-truth tumour type improved spinal-tumour segmentation  \citep{lemay2021}, whereas FiLM conditioned on MRI contrast or heart size gave no gain over a well-tuned U-Net  \citep{vincent2020,jacenkow2019}, and universal models condition their decoders or heads on task or class embeddings  \citep{zhang2021dodnet,liu2023clip,ye2023uniseg}. On the Cheng dataset, segmentation and type classification have usually been parallel heads on a shared encoder  \citep{rai2024}; we instead feed the network's own type posterior to FiLM layers on the decoder. Our contribution is not the mechanism but a pre-registered test of whether it helps, bounded above by an oracle that receives the true type.
 
 \subsection{Intensity augmentation with B\'ezier curves}
 
