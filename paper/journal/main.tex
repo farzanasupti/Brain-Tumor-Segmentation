@@ -29,22 +29,60 @@ protocol in 2D brain-tumour segmentation: a pre-registered study}
 \affil[2]{Department of Electrical and Electronic Engineering, American International University-Bangladesh (AIUB), Dhaka, Bangladesh}
 \affil[3]{TechnoNext Software Ltd, Dhaka, Bangladesh}
 \affil[4]{Department of Computer Science and Engineering, Independent University, Bangladesh (IUB), Dhaka, Bangladesh}
-\date{Draft, 17 November 2026}
+\date{Draft, 19 November 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-\pending{written last, after the H2--H4 results.}
+Using the tumour type to steer segmentation and remapping tumour and background
+intensities separately are two recent ideas for 2D brain-tumour segmentation. We
+tested both in a pre-registered study on the Cheng dataset (3064 slices, 233
+patients), with patient-disjoint five-fold cross-validation and a U-Net baseline.
+Conditioning the decoder on the predicted tumour type did not help ($-0.009$ Dice,
+95\% CI $[-0.025,+0.008]$), and neither did conditioning on the true type
+($+0.003$ against the U-Net). Region-wise B\'ezier augmentation, as registered,
+lowered Dice by 0.22 on every fold. We traced this to a label shortcut, measured
+before most folds ran: the transform writes an intensity edge onto the
+ground-truth boundary, which test images do not have. \pending{H4 and the bounded
+region arm, one sentence each.} Retraining the same U-Net on a slice-level split
+added 4.3--5.1 Dice points and shrank the between-fold standard deviation
+3--8$\times$, so error bars from leaky splits do not measure patient-level
+variation. Our baseline still sits 6.9 points below a published U-Net trained
+under a patient-level split. \pending{weight-decay run, one sentence.}
 \end{abstract}
 
 \section{Introduction}
 
-\todo{draft after results. The arc: (i) a pre-registered test of whether
-conditioning the decoder on tumour type helps; (ii) the baseline credibility gate
-failing, and what investigating it showed about evaluation protocol on this
-benchmark; (iii) what a label-aware intensity augmentation actually teaches the
-network. Contributions list goes here.}
+The Cheng dataset \citep{chengdata,cheng2015} has become a common benchmark for
+2D brain-tumour segmentation, and two ideas recur in recent work on it: using the
+tumour type to help segmentation, and label-aware intensity augmentation that
+remaps tumour and background separately \citep{yurdakul2026}. Both are plausible.
+Meningiomas, gliomas and pituitary tumours differ in location, margin and
+enhancement, and a network that knows which one it is looking at might draw it
+better. Remapping tumour and background with separate curves should make a
+network less dependent on any one intensity profile.
+
+We tested both in a pre-registered study. The analysis plan, including a
+\emph{baseline credibility gate}, was committed before any run finished. The
+gate asked our U-Net to come within reach of a published U-Net on the same data
+before any hypothesis was tested. It did not, and finding out why led us to
+measure how much the unit of the split changes the numbers on this benchmark.
+The conditioning hypotheses then gave a clear answer: type information, predicted
+or true, adds nothing measurable to the decoder. The augmentation hypotheses gave
+a large negative result, and the reason turned out to be more useful than the
+result itself: a mask-dependent transform can teach the network to find the label
+outline it painted, instead of the tumour.
+
+Our contributions are:
+\begin{enumerate}
+\item a pre-registered null result for type-conditioned decoding, with an oracle
+upper bound showing that even the true type does not help;
+\item a like-for-like measurement of the split-unit effect on this benchmark,
+including the collapse in between-fold variance it causes;
+\item a measured label shortcut in mask-dependent intensity augmentation, recorded
+before most of the affected runs, and a bounded variant that removes it.
+\end{enumerate}
 
 \section{Related work}
 \label{sec:related}
@@ -140,7 +178,7 @@ The analysis plan was committed to the project repository on 14 September 2026,
 before any training run completed: hypotheses, outcomes, statistics, equivalence
 margin, decision rules, stopping rule and a baseline credibility gate. Later
 decisions were added only as dated deviations, and every such analysis is labelled
-exploratory. \todo{repository URL and commit hash of the registration.}
+exploratory. The registration is commit \texttt{f3a40f1} of the project repository (Data and code availability).
 
 \subsection{Data and splits}
 Cheng dataset as above. Registered protocol: stratified group five-fold
@@ -170,8 +208,16 @@ one random cubic B\'ezier curve. \emph{Region} remaps tumour and background, as
 defined by the ground-truth mask, through two independent curves. Curves are
 monotonic with probability 0.5, and otherwise order-reversing. As registered, the
 B\'ezier arms apply on every training image, and control points are drawn from
-the full unit square. Section~\ref{sec:h3} compares these settings with
-\citet{yurdakul2026}.
+the full unit square. \citet{yurdakul2026} instead apply their transform with
+probability 0.5, bound the control points within 0.5 of the identity and smooth
+the boundary. We therefore added an exploratory \emph{bounded region} arm,
+specified and registered before it ran, that follows the source wherever it
+states a setting. It applies with probability 0.5 and draws each interior control
+ordinate within 0.5 of its abscissa, unordered in the non-monotonic regime and
+never reversed. It blends the two remapped regions through a Gaussian-blurred
+mask ($\sigma=2$\,px; the source gives no band width) instead of a hard
+composite. It is compared with \emph{standard} as an exploratory contrast outside
+the Holm family.
 
 \subsection{Training}
 Input $192\times192$; micro-batch 8 with effective batch 16 by gradient
@@ -249,13 +295,31 @@ patient-averaged Dice & 0.7699 & 0.7551 & $-0.0147\ [-0.031,+0.001]$ & 0.063 & 0
 
 Under the registered decision rules, H1 is inconclusive. The point estimate is
 negative on both co-primary outcomes and for every tumour type, even though the
-type head reaches 93.8\% accuracy. \pending{Holm-adjusted $p$ across all four
-contrasts.}
+type head reaches 93.8\% accuracy. With unadjusted $p\ge0.063$, H1 cannot become
+significant after Holm correction, whatever H4 shows.
 
 \subsection{H2: conditioning on the true type}
-\pending{five folds; oracle $-$ predicted contrast. If the oracle also fails to
-beat the plain U-Net, then type information does not help this decoder at all,
-not merely imperfect type predictions.}
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+outcome & predicted & oracle & difference [95\% CI] & $p$ & TOST $p$\\
+\midrule
+slice-averaged Dice & 0.7631 & 0.7748 & $+0.0117\ [-0.004,+0.027]$ & 0.10 & 0.85\\
+patient-averaged Dice & 0.7551 & 0.7695 & $+0.0144\ [-0.001,+0.029]$ & 0.056 & 0.92\\
+\bottomrule
+\end{tabular}
+\caption{H2 over five paired folds. $p$ values before Holm correction ($m=4$).}
+\end{table}
+
+Conditioning on the true type instead of the predicted one raised Dice by 0.012
+slice-averaged and 0.014 patient-averaged, with both intervals including zero.
+H2 is inconclusive, and like H1 it cannot become significant after Holm
+correction. Against the plain U-Net, the oracle differs by only $+0.003$
+$[-0.009,+0.015]$ ($p=0.54$). Its gains over the U-Net are at most half a point
+for any tumour type: glioma $0.663\to0.665$, meningioma $0.894\to0.896$,
+pituitary $0.846\to0.851$. So the H1 null is not caused by imperfect type
+predictions. Even a perfect type label gives this decoder almost nothing to use.
 
 \subsection{H3 and H4: region-wise augmentation}
 \label{sec:h3}
@@ -268,25 +332,89 @@ exceeded one standard deviation on 8\%, 3\% and 62\% of slices respectively. On
 fold 0, the region arm reached a training loss of 0.014 but a test Dice of 0.5746,
 against 0.7914 for the standard arm. Both the measurement and the prediction that
 H3 and H4 would be negative were recorded before the remaining folds ran.
-\pending{five-fold H3 and H4 contrasts.}
+
+All five folds confirmed it. The region arm lowered Dice by 0.217
+$[-0.287,-0.147]$ slice-averaged ($p=0.001$) and 0.215 $[-0.281,-0.148]$
+patient-averaged, and it was worse on every fold. H3 stays significant after Holm
+correction whatever H4 shows ($p_{\mathrm{Holm}}\le0.0041$ slice-averaged). Glioma
+suffered most: Dice fell from 0.663 to 0.345, and the number of glioma slices
+with no overlap at all rose from 133 to 477 of 1426. \pending{H4, region vs.\
+global, after folds 2--4.}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+arm & median step & slices $>1$ sd\\
+\midrule
+standard & 0.39 & 8\%\\
+global & 0.33 & 3\%\\
+region (registered) & 1.55 & 62\%\\
+bounded region (exploratory) & 0.36 & 13\%\\
+\bottomrule
+\end{tabular}
+\caption{Intensity step across the tumour boundary, in units of the image
+standard deviation, on 100 training slices after augmentation.}
+\label{tab:step}
+\end{table}
+
+\subsection{Bounded region arm (exploratory)}
+On the same 100 slices, the bounded arm's median boundary step is 0.36, and 13\%
+of slices exceed one standard deviation (Table~\ref{tab:step}). This is the
+standard arm's level, so the label outline is no longer written into the image.
+\pending{five-fold bounded region $-$ standard, slice- and patient-averaged Dice
+with 95\% CIs. Reading fixed before the run: a CI above zero means the
+augmentation helps once the shortcut is removed; a CI inside $\pm0.005$ means no
+benefit at the source's settings; a CI below zero means it hurts even without the
+shortcut.}
 
 \section{Discussion}
-\pending{after results. Points to cover: why type information does not help (or
-does, if H2 says so); the protocol effect and what it means for cross-paper
-comparison; label-aware augmentation as a source of shortcut learning, with the
-settings that limit it; the open 84.1 gap.}
+Type conditioning did not help, and the oracle arm shows why it is unlikely
+to: the decoder gains almost nothing even from the true type, so there is little
+for a better type predictor to unlock. Lemay et al.\ reported a gain of about five Dice points from the true tumour type on spinal-cord tumours, evaluated over random splits \citep{lemay2021}; under patient-disjoint folds we see none, even with the oracle. A FiLM shift on the decoder may simply
+duplicate information the encoder already passes on through the skip
+connections. We cannot rule out a small benefit; at five folds, neither
+contrast is equivalent to zero within the registered margin.
+
+The split unit matters as much as most architectural differences reported on
+this benchmark. A slice-level split adds about five points of Dice and makes the
+folds look far more consistent than they are, so a paper that splits by slice
+and one that splits by patient are not comparable, and a tight error bar from a
+leaky split says nothing about new patients.
+
+Mask-dependent augmentation needs a check that is easy to run and rarely
+reported: measure the intensity step it creates across the label boundary. Our
+registered arm wrote the label outline into almost two thirds of the training
+images, and the network learned to follow it. \pending{bounded region arm: does
+the augmentation help once the outline is gone.}
+
+Finally, the gap between our U-Net and the published 84.1 under a
+patient-level split remains open. \pending{weight-decay run.}
 
 \section{Limitations}
 One dataset, one architecture family, one seed per fold, and five folds, so
 intervals are wide. The protocol comparison is unpaired. The registered region arm
 perturbs more often and more strongly than \citet{yurdakul2026}, so a negative H3
-describes this implementation, not theirs. \pending{corrected-arm result, if run.}
+describes this implementation, not theirs. The bounded arm tests the source's
+settings, but on a U-Net rather than their Mamba U-Net, and with a boundary band
+width we had to choose.
 
 \section{Conclusion}
-\pending{after results.}
+In a pre-registered, patient-disjoint study on the Cheng dataset, conditioning a
+U-Net decoder on tumour type did not improve segmentation, even when the true
+type was supplied. Region-wise B\'ezier augmentation, as registered, made
+segmentation much worse, because it wrote the label outline into the training
+images. Splitting by slice instead of by patient added about five Dice points and
+made the folds look far more consistent than they are. Papers on this benchmark
+should state their split unit and aggregation, and label-aware augmentations
+should be checked for the edges they create. \pending{one sentence each on H4,
+the bounded arm and the weight-decay run.}
 
 \section*{Data and code availability}
-\todo{repository URL; the dataset is public \citep{chengdata}.}
+The dataset is public \citep{chengdata}. All code, the patient-level and
+slice-level splits, the pre-registration (commit \texttt{f3a40f1}) with its dated
+deviations, and every fold's per-slice test scores are available at
+\url{https://github.com/farzanasupti/Brain-Tumor-Segmentation}.
 
 \section*{Author contributions}
 F.R.S. and M.M.S. conceived and designed the study, ran the experiments, analysed the results and wrote the manuscript. F.R.S. also wrote the software. F.R.E. reviewed the literature on the Cheng dataset, checked the citations, reviewed the pre-registration and edited the manuscript. All authors reviewed and approved the final manuscript.
