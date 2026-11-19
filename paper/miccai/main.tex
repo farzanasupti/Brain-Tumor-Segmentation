@@ -28,7 +28,21 @@ Label-Aware Augmentation and Split Protocol in 2D Brain-Tumour Segmentation}
 \maketitle
 
 \begin{abstract}
-\pending{written last, after the H2--H4 results. At most 250 words.}
+Using the tumour type to steer segmentation and remapping tumour and background
+intensities separately are two recent ideas for 2D brain-tumour segmentation. We
+tested both in a pre-registered study on the Cheng dataset (3064 slices, 233
+patients), with patient-disjoint five-fold cross-validation and a U-Net baseline.
+Conditioning the decoder on the predicted tumour type did not help ($-0.009$ Dice,
+95\% CI $[-0.025,+0.008]$), and neither did conditioning on the true type
+($+0.003$ against the U-Net). Region-wise B\'ezier augmentation, as registered,
+lowered Dice by 0.22 on every fold. We traced this to a label shortcut, measured
+before most folds ran: the transform writes an intensity edge onto the
+ground-truth boundary, which test images do not have. \pending{H4 and the bounded
+region arm, one sentence each.} Retraining the same U-Net on a slice-level split
+added 4.3--5.1 Dice points and shrank the between-fold standard deviation
+3--8$\times$, so error bars from leaky splits do not measure patient-level
+variation. Our baseline still sits 6.9 points below a published U-Net trained
+under a patient-level split. \pending{weight-decay run, one sentence.}
 \keywords{Segmentation \and Pre-registration \and Data leakage \and Data augmentation}
 \end{abstract}
 
@@ -43,15 +57,22 @@ tumour type to help segmentation, and label-aware intensity augmentation that
 remaps tumour and background separately~\cite{yurdakul2026}.
 
 We tested both in a pre-registered study. The analysis plan, including a
-\emph{baseline credibility gate}, was committed before any run finished.
-\todo{introduction arc, after results: (i) does type conditioning help;
-(ii) the gate failing and what the split unit does to the numbers;
-(iii) what label-aware augmentation teaches the network.}
+\emph{baseline credibility gate}, was committed before any run finished. The
+gate asked our U-Net to come within reach of a published U-Net on the same data
+before any hypothesis was tested. It did not, and finding out why led us to
+measure how much the unit of the split changes the numbers on this benchmark.
+The conditioning hypotheses then gave a clear answer: type information, predicted
+or true, adds nothing measurable to the decoder. The augmentation hypotheses
+gave a large negative result, and the reason turned out to be more useful than
+the result itself: a mask-dependent transform can teach the network to find the
+label outline it painted, instead of the tumour.
 
-\noindent\textbf{Contributions.} \todo{final list after results. Candidates:
-a pre-registered null or negative result for type-conditioned decoding; a
-like-for-like measurement of the split-unit effect and of the variance collapse it
-causes; a measured label shortcut in mask-dependent augmentation.}
+\noindent\textbf{Contributions.} (i) A pre-registered null result for
+type-conditioned decoding, with an oracle upper bound showing that even the true
+type does not help. (ii) A like-for-like measurement of the split-unit effect on
+this benchmark, including the collapse in between-fold variance it causes.
+(iii) A measured label shortcut in mask-dependent intensity augmentation, recorded
+before most of the affected runs, and a bounded variant that removes it.
 
 \section{Related Work}
 \label{sec:related}
@@ -191,7 +212,9 @@ type head reaches 93.8\% accuracy.
 
 \begin{table}[t]
 \centering
-\caption{Registered contrasts over five paired folds. $p$ before Holm correction.}
+\caption{Registered contrasts over five paired folds: H1 predicted vs.\ U-Net,
+H2 oracle vs.\ predicted, H3 region vs.\ standard, H4 region vs.\ global. $p$
+before Holm correction ($m=4$); TOST against $\pm0.005$ Dice.}
 \label{tab:hyp}
 \begin{tabular}{@{}llccc@{}}
 \toprule
@@ -199,10 +222,10 @@ type head reaches 93.8\% accuracy.
 \midrule
 H1 & slice-avg.\ Dice & $-0.0088\ [-0.025,+0.008]$ & 0.21 & 0.72\\
    & patient-avg.\ Dice & $-0.0147\ [-0.031,+0.001]$ & 0.063 & 0.92\\
-H2 & slice-avg.\ Dice & \pending{} & & \\
-   & patient-avg.\ Dice & \pending{} & & \\
-H3 & slice-avg.\ Dice & \pending{} & & \\
-   & patient-avg.\ Dice & \pending{} & & \\
+H2 & slice-avg.\ Dice & $+0.0117\ [-0.004,+0.027]$ & 0.10 & 0.85\\
+   & patient-avg.\ Dice & $+0.0144\ [-0.001,+0.029]$ & 0.056 & 0.92\\
+H3 & slice-avg.\ Dice & $-0.2171\ [-0.287,-0.147]$ & 0.001 & 1.00\\
+   & patient-avg.\ Dice & $-0.2145\ [-0.281,-0.148]$ & 0.001 & 1.00\\
 H4 & slice-avg.\ Dice & \pending{} & & \\
    & patient-avg.\ Dice & \pending{} & & \\
 \bottomrule
@@ -210,8 +233,16 @@ H4 & slice-avg.\ Dice & \pending{} & & \\
 \end{table}
 
 \noindent\textbf{H2: oracle conditioning.}
-\pending{if the oracle also fails to beat the U-Net, type information does not
-help this decoder at all, not merely imperfect predictions.}
+Conditioning on the true type instead of the predicted one raised Dice by
+0.012 (slice-averaged) and 0.014 (patient-averaged), with both intervals
+including zero (Table~\ref{tab:hyp}). H2 is inconclusive. Against the plain
+U-Net, the oracle differs by only $+0.003$ $[-0.009,+0.015]$. Its gains over the
+U-Net are at most half a point for any tumour type: glioma $0.663\to0.665$,
+meningioma $0.894\to0.896$, pituitary $0.846\to0.851$. So the H1 null is not
+caused by imperfect type predictions. Even a perfect type label gives this
+decoder almost nothing to use, which suggests the type is already visible in
+the image features the decoder receives. Neither H1 nor H2 can become
+significant after Holm correction, whatever H4 shows.
 
 \noindent\textbf{H3 and H4: region-wise augmentation.}
 Before folds 1--4 ran, we measured how strongly each arm marks the label
@@ -221,7 +252,12 @@ boundary, divided by the image standard deviation, was 0.39 (standard), 0.33
 of slices. On fold 0 the region arm reached a training loss of 0.014 but a test
 Dice of 0.5746, against 0.7914 for standard. This measurement and the prediction
 that H3 and H4 would be negative were recorded before the remaining folds.
-\pending{five-fold H3 and H4.}
+All five folds confirmed it. The region arm lowered Dice by 0.217
+$[-0.287,-0.147]$ slice-averaged and 0.215 patient-averaged, worse on every fold
+(Table~\ref{tab:hyp}); H3 stays significant after Holm correction whatever H4
+shows ($p_{\mathrm{Holm}}\le0.0041$ slice-averaged). Glioma suffered most: Dice fell from 0.663 to
+0.345, and the share of glioma slices with no overlap at all rose from 133 to 477
+of 1426. \pending{H4, region vs.\ global, after folds 2--4.}
 
 \noindent\textbf{Bounded region arm (exploratory).}
 On the same 100 slices, the bounded arm's median boundary step is 0.36, and 13\%
@@ -251,9 +287,27 @@ bounded region (exploratory) & 0.36 & 13\%\\
 \end{table}
 
 \section{Discussion and Conclusion}
-\pending{after results: why type information does or does not help; what the
-split effect means for comparing papers on this benchmark; label-aware
-augmentation as a shortcut and the settings that limit it; the open 84.1 gap.}
+Type conditioning did not help, and the oracle arm shows why it is unlikely
+to: the decoder gains almost nothing even from the true type, so there is little
+for a better type predictor to unlock. A FiLM shift on the decoder may simply
+duplicate information the encoder already passes on through the skip
+connections. We cannot rule out a small benefit; at five folds, neither
+contrast is equivalent to zero within the registered margin.
+
+The split unit matters as much as most architectural differences reported on
+this benchmark. A slice-level split adds about five points of Dice and makes the
+folds look far more consistent than they are, so a paper that splits by slice
+and one that splits by patient are not comparable, and a tight error bar from a
+leaky split says nothing about new patients.
+
+Mask-dependent augmentation needs a check that is easy to run and rarely
+reported: measure the intensity step it creates across the label boundary. Our
+registered arm wrote the label outline into almost two thirds of the training
+images, and the network learned to follow it. \pending{bounded region arm: does
+the augmentation help once the outline is gone.}
+
+Finally, the gap between our U-Net and the published 84.1 under a
+patient-level split remains open. \pending{weight-decay run.}
 
 \noindent\textbf{Limitations.}
 One dataset, one architecture family, one seed per fold and five folds, so
