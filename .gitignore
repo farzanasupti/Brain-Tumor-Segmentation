@@ -7,3 +7,6 @@ data/images/
 data/masks/
 data/raw/
 *.log
+
+# Paper drafts live in a private repo until publication.
+paper/
