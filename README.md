@@ -166,6 +166,14 @@ reports slice-averaged and patient-averaged Dice instead, rebuilt from each cell
 (Holm-corrected together) and, kept apart and uncorrected, for the two exploratory
 runs: weight decay $10^{-4}$ and the bounded region arm.
 
+The score tables those numbers come from are committed under `runs/`: each run's
+`results.csv` and each cell's per-slice `test_slices.csv` (patient ID, tumour type, predicted
+type, Dice, IoU, HD95, ASSD). Checkpoints and predicted masks stay local. So
+`python contrasts.py` reproduces the paper's contrasts from a fresh clone without
+retraining anything. The runs are the ones named in
+[PREREGISTRATION.md](PREREGISTRATION.md): `main` (the registered grid), `baseline`,
+`baseline-frozen-aug`, `diag-256`, `diag-leaky`, `wd1e-4` and `region-bounded`.
+
 ## Preprocessing note for reporting
 
 `prepare_dataset.py` scales each 16-bit slice to 8-bit by its own min and max, because

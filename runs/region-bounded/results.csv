@@ -1,0 +1,6 @@
+cell,backbone,family,condition,arm,fold,seed,params,best_valid_dice,test_dice,test_iou,test_hd95,test_hd95_undefined,test_assd,test_type_acc,epochs_run,stopped_early,seconds,finished_at
+unet__n-a__region-bounded__f0,unet,cnn,n/a,region-bounded,0,42,31043521,0.784153,0.815164,0.728021,7.5961,7,2.6883,,107,True,14883.5,2026-11-21T03:56:45
+unet__n-a__region-bounded__f1,unet,cnn,n/a,region-bounded,1,42,31043521,0.8107,0.750723,0.658878,9.7925,17,3.9436,,73,True,10148.0,2026-11-21T06:45:53
+unet__n-a__region-bounded__f2,unet,cnn,n/a,region-bounded,2,42,31043521,0.802203,0.755652,0.663706,9.8628,5,3.9744,,59,True,8266.1,2026-11-21T09:03:39
+unet__n-a__region-bounded__f3,unet,cnn,n/a,region-bounded,3,42,31043521,0.794852,0.782845,0.695816,9.6016,6,3.6639,,72,True,9992.4,2026-11-21T11:50:12
+unet__n-a__region-bounded__f4,unet,cnn,n/a,region-bounded,4,42,31043521,0.787488,0.780107,0.693476,8.705,11,3.4454,,96,True,13369.0,2026-11-21T15:33:01
