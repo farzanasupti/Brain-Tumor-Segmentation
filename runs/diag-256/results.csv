@@ -1,0 +1,2 @@
+cell,backbone,family,condition,arm,fold,seed,params,best_valid_dice,test_dice,test_iou,test_hd95,test_hd95_undefined,test_assd,test_type_acc,epochs_run,stopped_early,seconds,finished_at
+unet__n-a__standard__f0,unet,cnn,n/a,standard,0,42,31043521,0.770229,0.790069,0.704059,13.563,21,4.4757,,63,True,14531.9,2026-09-16T17:33:33

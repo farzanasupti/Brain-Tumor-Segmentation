@@ -2,7 +2,12 @@ __pycache__/
 *.pyc
 files/
 results/
-runs/
+# Run outputs stay local except the score tables the paper's numbers come from:
+# each run's results.csv and each cell's per-slice test_slices.csv.
+runs/**
+!runs/**/
+!runs/*/results.csv
+!runs/*/*/test_slices.csv
 data/images/
 data/masks/
 data/raw/
