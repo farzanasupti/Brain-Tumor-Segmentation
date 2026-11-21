@@ -73,6 +73,7 @@ before this behaviour existed.
 | `engine.py` | training loop: early stopping, checkpointing, resume |
 | `experiment.py` | grid runner over backbone × condition × arm × fold |
 | `analyze.py` | paired contrasts, effect sizes, Holm correction, TOST |
+| `contrasts.py` | the paper's contrasts on slice- and patient-averaged Dice |
 | `figures.py` | qualitative strips, per-fold plot, per-type breakdown |
 | `PREREGISTRATION.md` | the analysis plan, fixed before any result existed |
 | `run_tests.py` | one entry point for the test suites, used by CI |
@@ -128,13 +129,13 @@ python run_tests.py --list     # what would run, and what is missing
 python run_tests.py test_folds # one suite
 ```
 
-There are 167 tests and they don't need pytest. If a suite's dependencies are missing,
+There are 181 tests and they don't need pytest. If a suite's dependencies are missing,
 it's **skipped and reported**, never quietly counted as passing. `test_folds` runs on
 plain Python, and the model suites need torch. Individual files still run directly (`python test_augment.py`).
 
 CI runs on every push and on pull requests to `main`: a fast stdlib job across Python
 3.10 and 3.12 that byte-compiles everything and re-derives the committed splits, and a
-full job that installs CPU torch and runs all six suites.
+full job that installs CPU torch and runs all nine suites.
 
 ## Analysis
 
@@ -142,6 +143,7 @@ full job that installs CPU torch and runs all six suites.
 python analyze.py --run runs/main                         # Dice
 python analyze.py --run runs/main --metric test_hd95 --lower-is-better
 python analyze.py --run runs/main --margin 0.005          # equivalence testing
+python contrasts.py                                       # the numbers in the paper
 ```
 
 The design is paired. Every cell trains on the same five folds, and the arms see the
@@ -157,6 +159,12 @@ decision rules and the baseline check are all fixed in
 [PREREGISTRATION.md](PREREGISTRATION.md), which I committed before any results existed.
 `analyze.py` uses that margin by default and flags the output if you pass a different
 one.
+
+`analyze.py` works from `results.csv`, so it sees one pooled test Dice per fold. The paper
+reports slice-averaged and patient-averaged Dice instead, rebuilt from each cell's
+`test_slices.csv`. `contrasts.py` computes those for the four registered hypotheses
+(Holm-corrected together) and, kept apart and uncorrected, for the two exploratory
+runs: weight decay $10^{-4}$ and the bounded region arm.
 
 ## Preprocessing note for reporting
 
