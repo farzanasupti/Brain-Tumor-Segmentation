@@ -17,12 +17,18 @@ import torch
 
 import backbones
 from dataloading import SliceDataset, make_loader
-from engine import (evaluate, fit, load_checkpoint, pick_device, save_checkpoint,
+from engine import (evaluate, fit, load_checkpoint, save_checkpoint,
                     train_epoch)
 from losses import DiceBCELoss, JointLoss, binary_scores, dice_loss, type_accuracy
 
 RESULTS = []
 TMP = None
+
+#: train_epoch and evaluate run on the device they are given but, unlike fit,
+#: leave the model where it is. The tiny models here are built on CPU, so the
+#: direct calls use CPU explicitly; with pick_device() they broke whenever a GPU
+#: was visible. fit() still picks and moves to the GPU itself.
+CPU = torch.device("cpu")
 
 
 def test(fn):
@@ -282,7 +288,7 @@ def one_epoch_of_training_runs_and_reports():
     model = tiny_model()
     criterion = JointLoss(type_weight=0.2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    stats = train_epoch(model, loader, criterion, optimizer, pick_device())
+    stats = train_epoch(model, loader, criterion, optimizer, CPU)
     assert set(stats) == {"loss", "seg", "type"}
     assert all(np.isfinite(v) for v in stats.values()), stats
 
@@ -297,9 +303,9 @@ def training_actually_reduces_the_loss():
     criterion = JointLoss(type_weight=0.2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3)
 
-    first = train_epoch(model, loader, criterion, optimizer, pick_device())["loss"]
+    first = train_epoch(model, loader, criterion, optimizer, CPU)["loss"]
     for _ in range(6):
-        last = train_epoch(model, loader, criterion, optimizer, pick_device())["loss"]
+        last = train_epoch(model, loader, criterion, optimizer, CPU)["loss"]
     assert last < first, f"loss did not fall: {first:.4f} -> {last:.4f}"
 
 
@@ -320,7 +326,7 @@ def accumulation_takes_one_step_per_group():
         CountingAdam.steps = 0
         model = tiny_model()
         train_epoch(model, loader, JointLoss(), CountingAdam(model.parameters(), lr=1e-3),
-                    pick_device(), accumulate=accumulate)
+                    CPU, accumulate=accumulate)
         assert CountingAdam.steps == expected, \
             f"accumulate={accumulate}: {CountingAdam.steps} steps, expected {expected}"
 
@@ -341,7 +347,7 @@ def a_trailing_partial_group_is_not_dropped():
     CountingAdam.steps = 0
     model = tiny_model()
     train_epoch(model, loader, JointLoss(), CountingAdam(model.parameters(), lr=1e-3),
-                pick_device(), accumulate=2)
+                CPU, accumulate=2)
     assert CountingAdam.steps == 3, f"expected 2 full groups + 1 remainder, got {CountingAdam.steps}"
 
 
@@ -367,7 +373,7 @@ def accumulation_approximates_a_larger_batch():
                 return super().step(*a, **k)
 
         opt = Capturing(model.parameters(), lr=0.0)          # capture, do not move
-        train_epoch(model, loader, JointLoss(0.0), opt, pick_device(), accumulate=accumulate)
+        train_epoch(model, loader, JointLoss(0.0), opt, CPU, accumulate=accumulate)
         return captured["g"]
 
     a, b = grads(big, 1), grads(small, 4)
@@ -382,7 +388,7 @@ def an_invalid_accumulation_is_rejected():
     model = tiny_model()
     try:
         train_epoch(model, loader, JointLoss(), torch.optim.AdamW(model.parameters()),
-                    pick_device(), accumulate=0)
+                    CPU, accumulate=0)
     except ValueError as exc:
         assert "accumulate" in str(exc), exc
         return
@@ -395,7 +401,7 @@ def evaluate_reports_metrics_and_optional_per_item_rows():
     loader = make_loader(records, training=False, batch_size=3, image_size=32,
                          num_workers=0)
     model = tiny_model("cond_unet")
-    metrics, rows = evaluate(model, loader, JointLoss(), pick_device(), per_item=True)
+    metrics, rows = evaluate(model, loader, JointLoss(), CPU, per_item=True)
 
     assert metrics["n"] == 6 and 0.0 <= metrics["dice"] <= 1.0
     assert metrics["type_acc"] is not None, "conditioned model reported no type accuracy"
@@ -413,9 +419,9 @@ def an_oracle_model_trains_and_evaluates_on_the_true_type():
                          num_workers=0)
     model = tiny_model("cond_unet", condition="oracle")
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-    stats = train_epoch(model, loader, JointLoss(), optimizer, pick_device())
+    stats = train_epoch(model, loader, JointLoss(), optimizer, CPU)
     assert stats["loss"] == stats["loss"], "oracle training produced NaN"
-    metrics = evaluate(model, loader, JointLoss(), pick_device())
+    metrics = evaluate(model, loader, JointLoss(), CPU)
     assert metrics["n"] == 6
 
 
@@ -424,7 +430,7 @@ def a_plain_backbone_reports_no_type_accuracy():
     records = make_dataset_on_disk(os.path.join(TMP, "e4"), n=4)
     loader = make_loader(records, training=False, batch_size=2, image_size=32,
                          num_workers=0)
-    metrics = evaluate(tiny_model("unet"), loader, None, pick_device())
+    metrics = evaluate(tiny_model("unet"), loader, None, CPU)
     assert metrics["type_acc"] is None
 
 
@@ -531,7 +537,7 @@ def an_empty_loader_is_reported_not_silently_averaged():
     loader = make_loader(records, training=False, batch_size=2, image_size=32,
                          num_workers=0)
     try:
-        evaluate(tiny_model(), loader, None, pick_device(), max_batches=0)
+        evaluate(tiny_model(), loader, None, CPU, max_batches=0)
     except RuntimeError as exc:
         assert "no batches" in str(exc), exc
         return
