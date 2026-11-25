@@ -34,8 +34,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from figures import TRUTH_COLOUR, _style  # noqa: E402
 
 ARMS = ("standard", "global", "region", "region-bounded")
-LABELS = {"standard": "standard", "global": "global", "region": "region\n(registered)",
-          "region-bounded": "bounded region\n(exploratory)"}
+LABELS = {"standard": "standard", "global": "global", "region": "region",
+          "region-bounded": "bounded\nregion"}
 
 
 def boundary_step(image, mask):
@@ -91,9 +91,10 @@ def pick_example(results):
 def draw(results, out_path):
     _style()
     example = pick_example(results)
-    fig = plt.figure(figsize=(7.2, 2.7))
-    gs = fig.add_gridspec(2, 4, width_ratios=[1, 1, 0.42, 2.2], wspace=0.05, hspace=0.22,
-                          left=0.01, right=0.99, top=0.86, bottom=0.17)
+    # Drawn at the LNCS text width (12.2 cm), so font sizes are the printed sizes.
+    fig = plt.figure(figsize=(4.8, 2.45))
+    gs = fig.add_gridspec(2, 4, width_ratios=[1, 1, 0.38, 1.75], wspace=0.04, hspace=0.2,
+                          left=0.0, right=0.995, top=0.85, bottom=0.17)
     for k, arm in enumerate(ARMS):
         ax = fig.add_subplot(gs[k // 2, k % 2])
         sid, s, img, msk = next(x for x in results[arm] if x[0] == example)
@@ -101,9 +102,9 @@ def draw(results, out_path):
         lo, hi = np.percentile(g, [1, 99])
         ax.imshow(g, cmap="gray", vmin=lo, vmax=hi)
         ax.contour(msk > 0.5, levels=[0.5], colors=[TRUTH_COLOUR], linewidths=0.6)
-        ax.set_title(f"{LABELS[arm].splitlines()[0]}: {s:.2f}", fontsize=7, pad=2)
+        ax.set_title(f"{LABELS[arm].replace(chr(10), ' ')}: {s:.2f}", fontsize=6.5, pad=1.5)
         if k == 0:
-            ax.text(-0.08, 1.18, "a", transform=ax.transAxes, fontweight="bold", fontsize=10, va="bottom")
+            ax.text(0.0, 1.17, "a", transform=ax.transAxes, fontweight="bold", fontsize=9, va="bottom")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -115,18 +116,21 @@ def draw(results, out_path):
     for k, arm in enumerate(ARMS):
         v = np.array([s for _, s, _, _ in results[arm]])
         x = k + rng.uniform(-0.18, 0.18, len(v))
-        ax.scatter(x, v, s=5, alpha=0.55, color="0.35" if arm != "region" else "#e6550d", linewidths=0)
+        ax.scatter(x, v, s=3, alpha=0.55, color="0.35" if arm != "region" else "#e6550d", linewidths=0)
         med = np.median(v)
         ax.plot([k - 0.28, k + 0.28], [med, med], color="black", linewidth=1.2)
-        ax.text(k, 1.01, f"median {med:.2f}\n{(v > 1).mean():.0%} above 1", ha="center", va="bottom",
-                fontsize=6.5, transform=ax.get_xaxis_transform())
+        ax.text(k, 1.01, f"{med:.2f}\n{(v > 1).mean():.0%}", ha="center", va="bottom",
+                fontsize=6, transform=ax.get_xaxis_transform())
     ax.axhline(1.0, color="0.4", linestyle="--", linewidth=0.7)
     ax.set_xticks(range(len(ARMS)))
-    ax.set_xticklabels([LABELS[a] for a in ARMS], fontsize=7)
-    ax.set_ylabel("boundary step (image sd)")
+    ax.set_xticklabels([LABELS[a] for a in ARMS], fontsize=6)
+    ax.tick_params(axis="y", labelsize=6.5)
+    ax.set_ylabel("boundary step (image sd)", fontsize=7)
     ax.set_xlim(-0.6, len(ARMS) - 0.4)
     ax.grid(axis="x", visible=False)
-    ax.text(-0.2, 1.09, "b", transform=ax.transAxes, fontweight="bold", fontsize=10, va="bottom")
+    ax.text(-0.3, 1.06, "b", transform=ax.transAxes, fontweight="bold", fontsize=9, va="bottom")
+    ax.text(-0.02, 1.01, "median\n> 1 sd", ha="right", va="bottom", fontsize=6, color="0.35",
+            transform=ax.transAxes)
     fig.savefig(out_path)
     plt.close(fig)
     return example
