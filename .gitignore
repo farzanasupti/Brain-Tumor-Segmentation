@@ -15,3 +15,11 @@ data/raw/
 
 # Paper drafts live in a private repo until publication.
 paper/
+
+# External datasets: raw downloads and converted PNGs stay local; manifests,
+# folds and the BRISC-to-Cheng match table are committed.
+data/ext/
+data/lgg/images/
+data/lgg/masks/
+data/brisc/images/
+data/brisc/masks/

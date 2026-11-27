@@ -140,9 +140,11 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--manifest", default="data/manifest.csv")
     p.add_argument("--out", default="figures")
+    p.add_argument("--stop", type=int, default=3000, help="sample from the first N manifest rows")
+    p.add_argument("--every", type=int, default=30, help="take every k-th of those rows")
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    results = measure(sample_rows(args.manifest))
+    results = measure(sample_rows(args.manifest, stop=args.stop, every=args.every))
     with open(os.path.join(args.out, "shortcut_steps.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["arm", "slice_id", "boundary_step_sd"])

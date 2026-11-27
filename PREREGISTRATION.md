@@ -442,3 +442,51 @@ It starts automatically after the weight-decay run has recorded all five folds.
   equivalence under the registered margin.
 * A CI below zero: the arm hurts even without the shortcut.
 * Anything else: inconclusive, reported with its CI.
+
+### 2026-11-28 — Exploratory: two external datasets
+
+Recorded before any model is trained on, or scored against, either dataset. A
+reviewer asked whether the findings hold beyond Cheng. Nothing here enters the
+Holm family or changes a registered result.
+
+**TCGA-LGG** (Buda et al.; Kaggle `mateuszbuda/lgg-mri-segmentation`). FLAIR
+channel, tumour-bearing slices only: 1,348 slices from 109 patients. The type
+label is `histological_type` from the dataset's `data.csv`, which we checked
+against the GDC primary diagnosis: 1 astrocytoma (33 patients), 2 oligoastrocytoma
+(29), 3 oligodendroglioma (47). One patient has no code and is dropped.
+Patient-disjoint stratified five-fold split from `folds.py` (seed 42), committed as
+`data/lgg/folds.csv`; a slice-level split from `make_slice_level_split.py` as on
+Cheng. Same training settings as the registered grid (192 px, batch 16 via micro-batch
+8, lr 1e-4, weight decay 1e-2, 150 epochs, patience 20, seed 42). Cells:
+`unet/standard`, `unet/region`, `unet/region-bounded`, `unet/global`,
+`cond_unet/predicted/standard`, `cond_unet/oracle/standard` on the patient-level
+folds, and `unet/standard` on the slice-level folds.
+
+**BRISC 2025** (Fateh et al.; Kaggle `briscdataset/brisc2025`), external test only.
+It has no patient IDs and reuses Cheng images: 1,666 of its 4,793 segmentation
+slices match a Cheng slice at a thumbnail correlation of at least 0.99, with the
+same type label in 1,662. We keep only slices whose nearest Cheng slice correlates
+below 0.90 (2,253 slices: 764 meningioma, 736 glioma, 753 pituitary). Every
+Cheng-trained cell already in `runs/main` and `runs/region-bounded` is scored on
+them unchanged. As a sensitivity check, results are repeated at a 0.80 threshold.
+Same-patient slices that are not near-copies cannot be ruled out; this is stated
+as a limitation.
+
+**Shortcut check, measured before training** (same measure as 2026-11-17; about
+100 slices each, every 13th LGG and every 22nd BRISC row):
+
+| arm | LGG median | LGG > 1 sd | BRISC median | BRISC > 1 sd |
+|---|---|---|---|---|
+| standard | 0.42 | 0% | 0.61 | 13% |
+| global | 0.38 | 2% | 0.49 | 12% |
+| region | 1.93 | 71% | 1.44 | 62% |
+| region-bounded | 0.43 | 5% | 0.60 | 13% |
+
+**Predictions.** (1) On LGG, `region` − `standard` and `region` − `global` have 95%
+CIs below zero, as on Cheng. (2) On LGG, the slice-level split gives higher Dice
+and a smaller between-fold standard deviation than the patient-level split.
+(3) On BRISC, the Cheng-trained `region` cells score below the `standard` cells.
+No direction is predicted for conditioning or for `region-bounded`; they are read
+with the rules fixed on 2026-11-18 (CI above zero, inside ±0.005, below zero, or
+inconclusive). All contrasts are paired over folds, slice- and patient-averaged
+where patients exist (LGG); BRISC is slice-averaged only.

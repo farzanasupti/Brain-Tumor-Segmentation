@@ -22,6 +22,7 @@ SUITES = {
     "test_folds": (),
     "test_augment": ("numpy", "cv2"),
     "test_shortcut_figure": ("numpy", "cv2", "matplotlib"),
+    "test_prepare_external": ("numpy", "PIL"),
     "test_segmetrics": ("numpy", "scipy"),
     "test_analyze": ("numpy", "scipy"),
     "test_contrasts": ("numpy", "scipy"),
